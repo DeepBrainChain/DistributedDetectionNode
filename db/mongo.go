@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"health-monitoring/log"
-	"health-monitoring/types"
+	"DistributedDetectionNode/log"
+	"DistributedDetectionNode/types"
 
 	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"

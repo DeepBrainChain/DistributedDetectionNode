@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"health-monitoring/types"
+	"DistributedDetectionNode/types"
 
 	"github.com/gorilla/websocket"
 )
 
-// go test -v -timeout 30s -count=1 -run TestWsMachine health-monitoring/ws
+// go test -v -timeout 30s -count=1 -run TestWsMachine DistributedDetectionNode/ws
 func TestWsMachine(t *testing.T) {
 	url := "ws://localhost:9521/websocket"
 	c, _, err := websocket.DefaultDialer.Dial(url, nil)

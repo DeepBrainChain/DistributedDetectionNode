@@ -3,7 +3,7 @@ package http
 import (
 	"net/http"
 
-	"health-monitoring/types"
+	"DistributedDetectionNode/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"

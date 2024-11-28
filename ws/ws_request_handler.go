@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"time"
 
-	"health-monitoring/db"
-	hmp "health-monitoring/http"
-	"health-monitoring/log"
-	"health-monitoring/types"
+	"DistributedDetectionNode/db"
+	hmp "DistributedDetectionNode/http"
+	"DistributedDetectionNode/log"
+	"DistributedDetectionNode/types"
 
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"

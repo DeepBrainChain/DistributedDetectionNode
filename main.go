@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"health-monitoring/db"
-	hmp "health-monitoring/http"
-	"health-monitoring/log"
-	"health-monitoring/types"
-	"health-monitoring/ws"
+	"DistributedDetectionNode/db"
+	hmp "DistributedDetectionNode/http"
+	"DistributedDetectionNode/log"
+	"DistributedDetectionNode/types"
+	"DistributedDetectionNode/ws"
 
 	"github.com/gin-gonic/gin"
 )

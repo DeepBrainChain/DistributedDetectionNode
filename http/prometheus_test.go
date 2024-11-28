@@ -9,7 +9,7 @@ import (
 	"github.com/prometheus/common/expfmt"
 )
 
-// go test -v -timeout 30s -count=1 -run TestPrometheusGauge health-monitoring/http
+// go test -v -timeout 30s -count=1 -run TestPrometheusGauge DistributedDetectionNode/http
 func TestPrometheusGauge(t *testing.T) {
 	temp := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -93,7 +93,7 @@ func TestPrometheusGauge(t *testing.T) {
 	}
 }
 
-// go test -v -timeout 30s -count=1 -run TestPrometheusTimestamp health-monitoring/http
+// go test -v -timeout 30s -count=1 -run TestPrometheusTimestamp DistributedDetectionNode/http
 func TestPrometheusTimestamp(t *testing.T) {
 	desc := prometheus.NewDesc(
 		"temperature",

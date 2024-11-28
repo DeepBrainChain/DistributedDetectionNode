@@ -24,8 +24,8 @@ docker run --name mongodb -p 27017:27017 -d mongodb/mongodb-community-server:7.0
 ## Build
 
 ```shell
-go build -ldflags "-X main.version=v0.1.5" -o hm main.go
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=v0.1.5" -o hm main.go
+go build -ldflags "-X main.version=v0.1.5" -o ddn main.go
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=v0.1.5" -o ddn main.go
 ```
 
 ## Run
@@ -48,7 +48,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=v0.1.5"
 }
 ```
 
-使用命令 `hm -config ./config.json` 运行即可。
+使用命令 `ddn -config ./config.json` 运行即可。
 
 程序会启动一个 WebSocket 服务，可以使用 `ws://192.168.1.159:9521/websocket` 连接。
 

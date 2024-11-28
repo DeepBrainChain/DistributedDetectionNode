@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// go test -v -timeout 30s -count=1 -run TestWsEcho health-monitoring/ws
+// go test -v -timeout 30s -count=1 -run TestWsEcho DistributedDetectionNode/ws
 func TestWsEcho(t *testing.T) {
 	url := "ws://localhost:9521/echo"
 	c, _, err := websocket.DefaultDialer.Dial(url, nil)

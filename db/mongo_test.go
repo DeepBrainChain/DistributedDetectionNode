@@ -13,7 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// go test -v -timeout 30s -count=1 -run TestMongoDBBasic health-monitoring/db
+// go test -v -timeout 30s -count=1 -run TestMongoDBBasic DistributedDetectionNode/db
 func TestMongoDBBasic(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -185,7 +185,7 @@ func TestMongoDBBasic(t *testing.T) {
 	searchCollection(ctx, client)
 }
 
-// go test -v -timeout 300s -count=1 -run TestMongoDBTimeSeries health-monitoring/db
+// go test -v -timeout 300s -count=1 -run TestMongoDBTimeSeries DistributedDetectionNode/db
 func TestMongoDBTimeSeries(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

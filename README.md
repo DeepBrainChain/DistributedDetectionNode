@@ -24,8 +24,8 @@ docker run --name mongodb -p 27017:27017 -d mongodb/mongodb-community-server:7.0
 ## Build
 
 ```shell
-go build -ldflags "-X main.version=v0.1.5" -o hm main.go
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=v0.1.5" -o hm main.go
+go build -ldflags "-X main.version=v0.1.5" -o ddn main.go
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=v0.1.5" -o ddn main.go
 ```
 
 ## Run
@@ -48,7 +48,7 @@ Create a JSON configuration file, as shown below:
 }
 ```
 
-Use the command `hm -config ./config.json` to run.
+Use the command `ddn -config ./config.json` to run.
 
 The program will start a WebSocket service, which can be connected using `ws://192.168.1.159:9521/websocket`.
 
