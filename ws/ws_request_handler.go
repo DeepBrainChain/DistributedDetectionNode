@@ -14,17 +14,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func handleWsRequest(ctx context.Context, c *websocket.Conn, nodeId *string, req *types.WsRequest, pm *hmp.PrometheusMetrics) error {
+func handleWsRequest(ctx context.Context, c *websocket.Conn, machine *types.WsOnlineRequest, req *types.WsRequest, pm *hmp.PrometheusMetrics) error {
 	switch req.Type {
 	case uint32(types.WsMtOnline):
-		handleWsOnlineRequest(ctx, c, nodeId, req, pm)
+		handleWsOnlineRequest(ctx, c, machine, req, pm)
 	case uint32(types.WsMtMachineInfo):
-		handleWsMachineInfoRequest(ctx, c, *nodeId, req, pm)
+		handleWsMachineInfoRequest(ctx, c, *machine, req, pm)
 	default:
 		log.Log.WithFields(logrus.Fields{
-			"node_id": *nodeId,
+			"machine": *machine,
 		}).Error("unknowned request message type")
-		writeWsResponse(c, *nodeId, &types.WsResponse{
+		writeWsResponse(c, *machine, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -41,9 +41,9 @@ func handleWsRequest(ctx context.Context, c *websocket.Conn, nodeId *string, req
 	return nil
 }
 
-func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, nodeId *string, req *types.WsRequest, pm *hmp.PrometheusMetrics) error {
-	if *nodeId != "" {
-		writeWsResponse(c, *nodeId, &types.WsResponse{
+func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, machine *types.WsOnlineRequest, req *types.WsRequest, pm *hmp.PrometheusMetrics) error {
+	if machine.MachineId != "" {
+		writeWsResponse(c, *machine, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -57,7 +57,7 @@ func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, nodeId *strin
 			Body:    []byte(""),
 		})
 		log.Log.WithFields(logrus.Fields{
-			"node_id": *nodeId,
+			"machine": *machine,
 		}).Error("device has been online, repeated requests")
 		return nil
 	}
@@ -65,9 +65,9 @@ func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, nodeId *strin
 	onlineReq := &types.WsOnlineRequest{}
 	if err := json.Unmarshal(req.Body, onlineReq); err != nil {
 		log.Log.WithFields(logrus.Fields{
-			"node_id": *nodeId,
+			"machine": *machine,
 		}).Error("parse online request failed: ", err)
-		writeWsResponse(c, *nodeId, &types.WsResponse{
+		writeWsResponse(c, *machine, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -85,8 +85,8 @@ func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, nodeId *strin
 
 	ctx1, cancel1 := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel1()
-	if db.MDB.IsNodeOnline(ctx1, onlineReq.NodeId) {
-		writeWsResponse(c, onlineReq.NodeId, &types.WsResponse{
+	if db.MDB.IsMachineOnline(ctx1, types.MachineKey(*onlineReq)) {
+		writeWsResponse(c, *onlineReq, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -100,15 +100,15 @@ func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, nodeId *strin
 			Body:    []byte(""),
 		})
 		log.Log.WithFields(logrus.Fields{
-			"node_id": onlineReq.NodeId,
+			"machine": onlineReq,
 		}).Error("device has been online, repeated connection")
 		return nil
 	}
 
 	ctx2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel2()
-	if err := db.MDB.NodeOnline(ctx2, onlineReq.NodeId); err != nil {
-		writeWsResponse(c, onlineReq.NodeId, &types.WsResponse{
+	if err := db.MDB.MachineOnline(ctx2, types.MachineKey(*onlineReq)); err != nil {
+		writeWsResponse(c, *onlineReq, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -124,8 +124,8 @@ func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, nodeId *strin
 		return nil
 	}
 
-	*nodeId = onlineReq.NodeId
-	writeWsResponse(c, *nodeId, &types.WsResponse{
+	*machine = *onlineReq
+	writeWsResponse(c, *machine, &types.WsResponse{
 		WsHeader: types.WsHeader{
 			Version:   0,
 			Timestamp: time.Now().Unix(),
@@ -141,12 +141,12 @@ func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, nodeId *strin
 	return nil
 }
 
-func handleWsMachineInfoRequest(ctx context.Context, c *websocket.Conn, nodeId string, req *types.WsRequest, pm *hmp.PrometheusMetrics) error {
-	if nodeId == "" {
+func handleWsMachineInfoRequest(ctx context.Context, c *websocket.Conn, machine types.WsOnlineRequest, req *types.WsRequest, pm *hmp.PrometheusMetrics) error {
+	if machine.MachineId == "" {
 		log.Log.WithFields(logrus.Fields{
-			"node_id": nodeId,
+			"machine": machine,
 		}).Error("node id is empty, need online device first")
-		writeWsResponse(c, nodeId, &types.WsResponse{
+		writeWsResponse(c, machine, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -165,9 +165,9 @@ func handleWsMachineInfoRequest(ctx context.Context, c *websocket.Conn, nodeId s
 	miReq := types.WsMachineInfoRequest{}
 	if err := json.Unmarshal(req.Body, &miReq); err != nil {
 		log.Log.WithFields(logrus.Fields{
-			"node_id": nodeId,
+			"machine": machine,
 		}).Error("parse machine info request failed: ", err)
-		writeWsResponse(c, nodeId, &types.WsResponse{
+		writeWsResponse(c, machine, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -185,8 +185,8 @@ func handleWsMachineInfoRequest(ctx context.Context, c *websocket.Conn, nodeId s
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := db.MDB.AddDeviceInfo(ctx, nodeId, time.UnixMilli(req.Timestamp), miReq); err != nil {
-		writeWsResponse(c, nodeId, &types.WsResponse{
+	if err := db.MDB.AddMachineInfo(ctx, types.MachineKey(machine), time.UnixMilli(req.Timestamp), miReq); err != nil {
+		writeWsResponse(c, machine, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -202,11 +202,11 @@ func handleWsMachineInfoRequest(ctx context.Context, c *websocket.Conn, nodeId s
 		return nil
 	}
 
-	pm.SetMetrics(nodeId, miReq)
+	// pm.SetMetrics(nodeId, miReq)
 	log.Log.WithFields(logrus.Fields{
-		"node_id": nodeId,
+		"machine": machine,
 	}).WithField("machine info", miReq).Info("update machine info")
-	writeWsResponse(c, nodeId, &types.WsResponse{
+	writeWsResponse(c, machine, &types.WsResponse{
 		WsHeader: types.WsHeader{
 			Version:   0,
 			Timestamp: time.Now().Unix(),

@@ -3,8 +3,6 @@ package http
 import (
 	"net/http"
 
-	"DistributedDetectionNode/types"
-
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -52,14 +50,14 @@ func NewPrometheusMetrics(jobName string) *PrometheusMetrics {
 	return pm
 }
 
-func (pm PrometheusMetrics) SetMetrics(id string, info types.WsMachineInfoRequest) {
-	if pm.jobName == "" {
-		return
-	}
-	pm.utilizationGPUGauge.WithLabelValues(pm.jobName, id).Set(float64(info.UtilizationGPU))
-	pm.memoryTotalGauge.WithLabelValues(pm.jobName, id).Set(float64(info.MemoryTotal))
-	pm.memoryUsedGauge.WithLabelValues(pm.jobName, id).Set(float64(info.MemoryUsed))
-}
+// func (pm PrometheusMetrics) SetMetrics(id string, info types.WsMachineInfoRequest) {
+// 	if pm.jobName == "" {
+// 		return
+// 	}
+// 	pm.utilizationGPUGauge.WithLabelValues(pm.jobName, id).Set(float64(info.UtilizationGPU))
+// 	pm.memoryTotalGauge.WithLabelValues(pm.jobName, id).Set(float64(info.MemoryTotal))
+// 	pm.memoryUsedGauge.WithLabelValues(pm.jobName, id).Set(float64(info.MemoryUsed))
+// }
 
 func (pm PrometheusMetrics) DeleteMetrics(id string) {
 	if pm.jobName == "" {

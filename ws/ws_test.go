@@ -47,7 +47,9 @@ func TestWsMachine(t *testing.T) {
 	var reqId uint64 = 0
 
 	onlineReq := &types.WsOnlineRequest{
-		NodeId: "123456789",
+		MachineId:   "123456789",
+		Project:     "DecentralGPT",
+		ContainerId: "",
 	}
 	reqBody, err := json.Marshal(onlineReq)
 	if err != nil {
@@ -81,16 +83,14 @@ func TestWsMachine(t *testing.T) {
 	reqId++
 
 	machineInfo := &types.WsMachineInfoRequest{
-		Project:        "DecentralGPT",
-		Models:         make([]types.ModelInfo, 0),
-		GPUName:        "NVIDIA RTX A5000",
-		UtilizationGPU: 30,
-		MemoryTotal:    24564,
-		MemoryUsed:     22128,
+		GPUNames: []string{"NVIDIA RTX A5000"},
+		// UtilizationGPU: 30,
+		MemoryTotal: 24564,
+		// MemoryUsed:     22128,
 	}
-	machineInfo.Models = append(machineInfo.Models, types.ModelInfo{
-		Model: "Codestral-22B-v0.1",
-	})
+	// machineInfo.Models = append(machineInfo.Models, types.ModelInfo{
+	// 	Model: "Codestral-22B-v0.1",
+	// })
 	reqBody, err = json.Marshal(machineInfo)
 	if err != nil {
 		t.Fatalf("marshal machine info request body failed: %v", err)

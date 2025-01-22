@@ -42,7 +42,7 @@ const (
 
 func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 	w, r := ctx.Writer, ctx.Request
-	var nodeId string
+	var machine types.WsOnlineRequest
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, "Upgrade to websocket failed", http.StatusUpgradeRequired)
@@ -50,12 +50,12 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 		return
 	}
 	defer func() {
-		if nodeId != "" {
-			db.MDB.NodeOffline(r.Context(), nodeId)
-			pm.DeleteMetrics(nodeId)
+		if machine.MachineId != "" {
+			db.MDB.MachineOffline(r.Context(), types.MachineKey(machine))
+			// pm.DeleteMetrics(machine)
 		}
 		log.Log.WithFields(logrus.Fields{
-			"node_id": nodeId,
+			"machine": machine,
 		}).Info("connection stopped")
 		c.Close()
 	}()
@@ -64,7 +64,7 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 	c.SetPingHandler(func(appData string) error {
 		c.SetReadDeadline(time.Now().Add(pongWait))
 		log.Log.WithFields(logrus.Fields{
-			"node_id": nodeId,
+			"machine": machine,
 		}).Info("ping handler")
 		return nil
 	})
@@ -73,20 +73,20 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 		mt, message, err := c.ReadMessage()
 		if err != nil {
 			log.Log.WithFields(logrus.Fields{
-				"node_id": nodeId,
+				"machine": machine,
 			}).Info("read: ", err)
 			break
 		}
 		log.Log.WithFields(logrus.Fields{
-			"node_id": nodeId,
+			"machine": machine,
 		}).Infof("recv message: %v %s", mt, message)
 
 		req := &types.WsRequest{}
 		if err := json.Unmarshal(message, req); err != nil {
 			log.Log.WithFields(logrus.Fields{
-				"node_id": nodeId,
+				"machine": machine,
 			}).Error("parse request failed: ", err)
-			writeWsResponse(c, nodeId, &types.WsResponse{
+			writeWsResponse(c, machine, &types.WsResponse{
 				WsHeader: types.WsHeader{
 					Version:   0,
 					Timestamp: time.Now().Unix(),
@@ -102,22 +102,22 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 			continue
 		}
 
-		handleWsRequest(r.Context(), c, &nodeId, req, pm)
+		handleWsRequest(r.Context(), c, &machine, req, pm)
 	}
 }
 
-func writeWsResponse(c *websocket.Conn, nodeId string, res *types.WsResponse) error {
+func writeWsResponse(c *websocket.Conn, machine types.WsOnlineRequest, res *types.WsResponse) error {
 	resBytes, err := json.Marshal(res)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{
-			"node_id": nodeId,
+			"machine": machine,
 		}).Error("marshal reponse failed: ", err)
 		return err
 	}
 	err = c.WriteMessage(websocket.TextMessage, resBytes)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{
-			"node_id": nodeId,
+			"machine": machine,
 		}).Error("write response message failed: ", err)
 		return err
 	}

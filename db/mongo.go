@@ -17,9 +17,9 @@ import (
 var MDB *mongoDB = nil
 
 type mongoDB struct {
-	Mongo                  *mongo.Client
-	deviceOnlineCollection *mongo.Collection
-	deviceInfoCollection   *mongo.Collection
+	Mongo                   *mongo.Client
+	machineOnlineCollection *mongo.Collection
+	machineInfoCollection   *mongo.Collection
 }
 
 func InitMongo(ctx context.Context, uri, db string, eas int64) error {
@@ -38,31 +38,31 @@ func InitMongo(ctx context.Context, uri, db string, eas int64) error {
 		Mongo: client,
 	}
 
-	cl, err := client.Database(db).ListCollectionNames(ctx, bson.M{"name": "device_info"})
+	cl, err := client.Database(db).ListCollectionNames(ctx, bson.M{"name": "machine_info"})
 	if err != nil {
 		log.Log.Fatalf("List mongodb collection names failed: %v", err)
 		return err
 	}
 	if len(cl) == 0 {
-		// Create collection with time series for device info
+		// Create collection with time series for machine info
 		tsOpts := options.TimeSeries()
 		tsOpts.SetTimeField("timestamp")
-		tsOpts.SetMetaField("device")
+		tsOpts.SetMetaField("machine")
 		tsOpts.SetGranularity("minutes")
 		// tsOpts.SetBucketMaxSpan(30)
 		// tsOpts.SetBucketRounding(5)
 		ccOpts := options.CreateCollection()
 		ccOpts.SetTimeSeriesOptions(tsOpts)
 		ccOpts.SetExpireAfterSeconds(eas)
-		if err := client.Database(db).CreateCollection(ctx, "device_info", ccOpts); err != nil {
+		if err := client.Database(db).CreateCollection(ctx, "machine_info", ccOpts); err != nil {
 			log.Log.Fatalf("Create time series collection failed: %v", err)
 			return err
 		}
 		log.Log.Info("Create collection with time series success")
 	}
 
-	MDB.deviceOnlineCollection = client.Database(db).Collection("device_online")
-	MDB.deviceInfoCollection = client.Database(db).Collection("device_info")
+	MDB.machineOnlineCollection = client.Database(db).Collection("machine_online")
+	MDB.machineInfoCollection = client.Database(db).Collection("machine_info")
 	return nil
 }
 
@@ -72,9 +72,16 @@ func (db *mongoDB) Disconnect(ctx context.Context) {
 	}
 }
 
-func (db *mongoDB) IsNodeOnline(ctx context.Context, nodeId string) bool {
-	result := types.MDBDeviceOnline{}
-	if err := db.deviceOnlineCollection.FindOne(ctx, bson.M{"device_id": nodeId}).Decode(&result); err != nil {
+func (db *mongoDB) IsMachineOnline(ctx context.Context, machine types.MachineKey) bool {
+	result := types.MDBMachineOnline{}
+	if err := db.machineOnlineCollection.FindOne(
+		ctx,
+		bson.M{
+			"machine_id":   machine.MachineId,
+			"project":      machine.Project,
+			"container_id": machine.ContainerId,
+		},
+	).Decode(&result); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return false
 		}
@@ -83,63 +90,75 @@ func (db *mongoDB) IsNodeOnline(ctx context.Context, nodeId string) bool {
 	return true
 }
 
-func (db *mongoDB) NodeOnline(ctx context.Context, nodeId string) error {
-	res, err := db.deviceOnlineCollection.InsertOne(ctx, types.MDBDeviceOnline{
-		DeviceId: nodeId,
-		AddTime:  time.Now(),
+func (db *mongoDB) MachineOnline(ctx context.Context, machine types.MachineKey) error {
+	res, err := db.machineOnlineCollection.InsertOne(ctx, types.MDBMachineOnline{
+		MachineKey: machine,
+		AddTime:    time.Now(),
 	})
 	if err != nil {
-		log.Log.WithFields(logrus.Fields{"node_id": nodeId}).Error("insert online failed: ", err)
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("insert online failed: ", err)
 		return err
 	}
-	log.Log.WithFields(logrus.Fields{"node_id": nodeId}).Info("inserted online id ", res.InsertedID)
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("inserted online id ", res.InsertedID)
 	return nil
 }
 
-func (db *mongoDB) NodeOffline(ctx context.Context, nodeId string) error {
-	result, err := db.deviceOnlineCollection.DeleteOne(ctx, bson.M{"device_id": nodeId})
+func (db *mongoDB) MachineOffline(ctx context.Context, machine types.MachineKey) error {
+	result, err := db.machineOnlineCollection.DeleteOne(
+		ctx,
+		bson.M{
+			"machine_id":   machine.MachineId,
+			"project":      machine.Project,
+			"container_id": machine.ContainerId,
+		},
+	)
 	if err != nil {
-		log.Log.WithFields(logrus.Fields{"node_id": nodeId}).Error("delete online failed: ", err)
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("delete online failed: ", err)
 		return err
 	}
-	log.Log.WithFields(logrus.Fields{"node_id": nodeId}).Info("delete online count ", result.DeletedCount)
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("delete online count ", result.DeletedCount)
 	return nil
 }
 
-func (db *mongoDB) GetDeviceInfo(ctx context.Context, nodeId string) (*types.MDBDeviceInfo, error) {
-	result := &types.MDBDeviceInfo{}
-	if err := db.deviceInfoCollection.FindOne(ctx, bson.M{"device_id": nodeId}).Decode(result); err != nil {
+func (db *mongoDB) GetMachineInfo(ctx context.Context, machine types.MachineKey) (*types.MDBMachineInfo, error) {
+	result := &types.MDBMachineInfo{}
+	if err := db.machineInfoCollection.FindOne(
+		ctx,
+		bson.M{
+			"machine_id":   machine.MachineId,
+			"project":      machine.Project,
+			"container_id": machine.ContainerId,
+		},
+	).Decode(result); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-func (db *mongoDB) AddDeviceInfo(ctx context.Context, nodeId string, tm time.Time, info types.WsMachineInfoRequest) error {
-	result, err := db.deviceInfoCollection.InsertOne(
+func (db *mongoDB) AddMachineInfo(ctx context.Context, machine types.MachineKey, tm time.Time, info types.WsMachineInfoRequest) error {
+	result, err := db.machineInfoCollection.InsertOne(
 		ctx,
-		types.MDBDeviceInfo{
+		types.MDBMachineInfo{
 			Timestamp: tm,
-			Device: types.MDBMetaField{
-				DeviceId: nodeId,
-				Project:  info.Project,
-				Models:   info.Models,
-				GPUName:  info.GPUName,
+			Machine: types.MDBMetaField{
+				MachineKey: machine,
 			},
-			UtilizationGPU: info.UtilizationGPU,
-			MemoryTotal:    info.MemoryTotal,
-			MemoryUsed:     info.MemoryUsed,
+			GPUNames: info.GPUNames,
+			// UtilizationGPU: info.UtilizationGPU,
+			MemoryTotal: info.MemoryTotal,
+			// MemoryUsed:     info.MemoryUsed,
 		},
 	)
 	if err != nil {
-		log.Log.WithFields(logrus.Fields{"node_id": nodeId}).Error("insert device info failed: ", err)
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("insert machine info failed: ", err)
 		return err
 	}
-	log.Log.WithFields(logrus.Fields{"node_id": nodeId}).Info("inserted device info id ", result.InsertedID)
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("inserted machine info id ", result.InsertedID)
 	return nil
 }
 
-func (db *mongoDB) DeleteExpiredDeviceInfo(ctx context.Context, tm time.Time) error {
-	result, err := db.deviceInfoCollection.DeleteMany(
+func (db *mongoDB) DeleteExpiredMachineInfo(ctx context.Context, tm time.Time) error {
+	result, err := db.machineInfoCollection.DeleteMany(
 		ctx,
 		bson.M{
 			"timestamp": bson.M{"$lt": tm},
@@ -153,25 +172,25 @@ func (db *mongoDB) DeleteExpiredDeviceInfo(ctx context.Context, tm time.Time) er
 	return nil
 }
 
-func (db *mongoDB) GetAllLatestDeviceInfo(ctx context.Context) []types.MDBDeviceInfo {
-	di := make([]types.MDBDeviceInfo, 0)
+func (db *mongoDB) GetAllLatestmachineInfo(ctx context.Context) []types.MDBMachineInfo {
+	di := make([]types.MDBMachineInfo, 0)
 	pipeline := mongo.Pipeline{
 		// {{"$match", bson.D{{"timestamp", bson.D{{"$gt", specificTimestamp}}}}}},
-		{{"$sort", bson.D{{"device.device_id", 1}, {"timestamp", -1}}}},
+		{{"$sort", bson.D{{"machine.machine_id", 1}, {"timestamp", -1}}}},
 		{{"$group", bson.D{
-			{"_id", "$device.device_id"},
+			{"_id", "$machine.machine_id"},
 			{"latestRecord", bson.D{{"$first", "$$ROOT"}}},
 		}}},
 		{{"$replaceRoot", bson.D{{"newRoot", "$latestRecord"}}}},
 	}
-	cursor, err := db.deviceInfoCollection.Aggregate(ctx, pipeline)
+	cursor, err := db.machineInfoCollection.Aggregate(ctx, pipeline)
 	if err != nil {
-		log.Log.Errorf("Aggregate documents of all latest device info failed: %v", err)
+		log.Log.Errorf("Aggregate documents of all latest machine info failed: %v", err)
 		return di
 	}
 	defer cursor.Close(ctx)
 	for cursor.Next(ctx) {
-		result := types.MDBDeviceInfo{}
+		result := types.MDBMachineInfo{}
 		if err := cursor.Decode(&result); err != nil {
 			log.Log.Errorf("Decode aggregate cursor into struct failed: %v", err)
 		} else {

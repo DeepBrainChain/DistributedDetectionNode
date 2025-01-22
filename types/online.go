@@ -2,26 +2,26 @@ package types
 
 import "sync"
 
-type OnlineDevices struct {
-	devices map[string]WsMachineInfoRequest
-	mutex   sync.RWMutex
+type OnlineMachines struct {
+	machines map[WsOnlineRequest]WsMachineInfoRequest
+	mutex    sync.RWMutex
 }
 
-func NewOnlineDevices() *OnlineDevices {
-	return &OnlineDevices{
-		devices: make(map[string]WsMachineInfoRequest),
-		mutex:   sync.RWMutex{},
+func NewOnlineMachines() *OnlineMachines {
+	return &OnlineMachines{
+		machines: make(map[WsOnlineRequest]WsMachineInfoRequest),
+		mutex:    sync.RWMutex{},
 	}
 }
 
-func (od *OnlineDevices) SetDevice(id string, di WsMachineInfoRequest) {
+func (od *OnlineMachines) SetDevice(id WsOnlineRequest, di WsMachineInfoRequest) {
 	od.mutex.Lock()
-	od.devices[id] = di
+	od.machines[id] = di
 	od.mutex.Unlock()
 }
 
-func (od *OnlineDevices) RemoveDevice(id string) {
+func (od *OnlineMachines) RemoveDevice(id WsOnlineRequest) {
 	od.mutex.Lock()
-	delete(od.devices, id)
+	delete(od.machines, id)
 	od.mutex.Unlock()
 }
