@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"DistributedDetectionNode/db"
+	"DistributedDetectionNode/dbc"
 	hmp "DistributedDetectionNode/http"
 	"DistributedDetectionNode/log"
 	"DistributedDetectionNode/types"
@@ -75,6 +76,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	chain, err := dbc.InitDbcChain(ctx, cfg.Chain.AbiFile, cfg.Chain.Rpc, cfg.Chain.ContractAddress, cfg.Chain.PrivateKey, cfg.Chain.ChainId)
+	if err != nil {
+		os.Exit(1)
+	}
+
 	pm := hmp.NewPrometheusMetrics(cfg.Prometheus.JobName)
 
 	gin.DefaultWriter = log.Log.Out
@@ -99,6 +105,22 @@ func main() {
 	router.Use(gin.LoggerWithFormatter(defaultLogFormatter), gin.Recovery())
 	router.GET("/metrics/prometheus", pm.Metrics)
 	// router.GET("/echo", ws.Echo)
+	// for dbc contract
+	c0 := router.Group("/api/v0/contract")
+	{
+		c0.POST("/register", func(ctx *gin.Context) {
+			hmp.RegisterMachine(ctx, chain)
+		})
+		c0.POST("/unregister", func(ctx *gin.Context) {
+			hmp.UnregisterMachine(ctx, chain)
+		})
+		c0.POST("/online", func(ctx *gin.Context) {
+			hmp.OnlineMachine(ctx, chain)
+		})
+		c0.POST("/offline", func(ctx *gin.Context) {
+			hmp.OfflineMachine(ctx, chain)
+		})
+	}
 	router.GET("/websocket", func(c *gin.Context) {
 		ws.Ws(c, pm)
 	})

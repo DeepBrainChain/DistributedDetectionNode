@@ -9,4 +9,19 @@ const (
 	ErrCodeDatabase                         // 数据库错误
 	ErrCodeOnline                           // 上线错误
 	ErrCodeMachineInfo                      // 更新机器信息错误
+	ErrCodeDbcChain                         // DBC 链错误
 )
+
+var errMsg = map[ErrorCode]string{
+	ErrCodeParam:       "parameter error",
+	ErrCodeParse:       "parsing error",
+	ErrCodeSign:        "sign error",
+	ErrCodeDatabase:    "database error",
+	ErrCodeOnline:      "online error",
+	ErrCodeMachineInfo: "invalid machine info",
+	ErrCodeDbcChain:    "dbc chain error",
+}
+
+func (e ErrorCode) String() string {
+	return errMsg[e]
+}
