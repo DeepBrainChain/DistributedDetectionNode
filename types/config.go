@@ -24,13 +24,19 @@ type ChainConfig struct {
 	ChainId         int64  `json:"ChainId"`
 }
 
+type Certificate struct {
+	Cert string `json:"cert"`
+	Key  string `json:"key"`
+}
+
 type Config struct {
-	Addr       string      `json:"Addr"`
-	LogLevel   string      `json:"LogLevel"`
-	LogFile    string      `json:"LogFile"`
-	MongoDB    MongoDB     `json:"MongoDB"`
-	Prometheus Prometheus  `json:"Prometheus"`
-	Chain      ChainConfig `json:"Chain"`
+	Addr        string      `json:"Addr"`
+	LogLevel    string      `json:"LogLevel"`
+	LogFile     string      `json:"LogFile"`
+	MongoDB     MongoDB     `json:"MongoDB"`
+	Prometheus  Prometheus  `json:"Prometheus"`
+	Chain       ChainConfig `json:"Chain"`
+	Certificate Certificate `json:"Certificate"`
 }
 
 func LoadConfig(configPath string) (*Config, error) {

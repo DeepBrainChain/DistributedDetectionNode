@@ -132,11 +132,28 @@ func main() {
 		Handler: router,
 	}
 
+	// if cfg.Certificate.Cert != "" && cfg.Certificate.Key != "" {
+	// 	cert, err := tls.LoadX509KeyPair(cfg.Certificate.Cert, cfg.Certificate.Key)
+	// 	if err != nil {
+	// 		log.Log.Fatalf("Failed to load x509 certificate: %v", err)
+	// 	}
+	// 	srv.TLSConfig = &tls.Config{
+	// 		Certificates: []tls.Certificate{cert},
+	// 		MinVersion:   tls.VersionTLS12,
+	// 	}
+	// }
+
 	// Initializing the server in a goroutine so that
 	// it won't block the graceful shutdown handling below
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Log.Fatalf("Start server: %v", err)
+		if cfg.Certificate.Cert != "" && cfg.Certificate.Key != "" {
+			if err := srv.ListenAndServeTLS(cfg.Certificate.Cert, cfg.Certificate.Key); err != nil && err != http.ErrServerClosed {
+				log.Log.Fatalf("Start server: %v", err)
+			}
+		} else {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Log.Fatalf("Start server: %v", err)
+			}
 		}
 	}()
 
