@@ -78,6 +78,7 @@ func main() {
 
 	chain, err := dbc.InitDbcChain(ctx, cfg.Chain.AbiFile, cfg.Chain.Rpc, cfg.Chain.ContractAddress, cfg.Chain.PrivateKey, cfg.Chain.ChainId)
 	if err != nil {
+		fmt.Println(err)
 		os.Exit(1)
 	}
 

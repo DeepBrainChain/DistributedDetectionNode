@@ -3,7 +3,7 @@ package dbc
 import (
 	"context"
 	"crypto/ecdsa"
-	"errors"
+	"fmt"
 	"math/big"
 	"os"
 
@@ -15,7 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	"DistributedDetectionNode/log"
 	mt "DistributedDetectionNode/types"
 )
 
@@ -30,38 +29,32 @@ type DbcChain struct {
 func InitDbcChain(ctx context.Context, abifile, rpc, address, hexkey string, chainId int64) (*DbcChain, error) {
 	file, err := os.Open(abifile)
 	if err != nil {
-		log.Log.Errorf("Failed to read ABI file: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to read ABI file: %v", err)
 	}
 	defer file.Close()
 	abi, err := abi.JSON(file)
 	if err != nil {
-		log.Log.Errorf("Failed to parse ABI: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to parse ABI: %v", err)
 	}
 	client, err := ethclient.Dial(rpc)
 	if err != nil {
-		log.Log.Errorf("Failed to connect to the Ethereum client: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to the Ethereum client: %v", err)
 	}
 	cid, err := client.NetworkID(ctx)
 	if err != nil {
 		if chainId != 0 {
 			cid = big.NewInt(chainId)
 		} else {
-			log.Log.Errorf("Failed to get chain id: %v", err)
-			return nil, err
+			return nil, fmt.Errorf("failed to get chain id: %v", err)
 		}
 	}
 	if !(common.IsHexAddress(address)) {
-		log.Log.Errorf("Invalid contract address: %v", address)
-		return nil, errors.New("invalid contract address")
+		return nil, fmt.Errorf("invalid contract address: %v", address)
 	}
 	addr := common.HexToAddress(address)
 	privateKey, err := crypto.HexToECDSA(hexkey)
 	if err != nil {
-		log.Log.Errorf("Failed to load private key: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to load private key: %v", err)
 	}
 	return &DbcChain{
 		rpc:             rpc,
@@ -72,19 +65,17 @@ func InitDbcChain(ctx context.Context, abifile, rpc, address, hexkey string, cha
 	}, nil
 }
 
-func (chain *DbcChain) Report(notifyType mt.NotifyType, stakingType mt.StakingType, projectName, machineId string) error {
+func (chain *DbcChain) Report(ctx context.Context, notifyType mt.NotifyType, stakingType mt.StakingType, projectName, machineId string) (string, error) {
 	// Connect to Ethereum node
 	client, err := ethclient.Dial(chain.rpc)
 	if err != nil {
-		log.Log.Errorf("Failed to connect to the Ethereum client: %v", err)
-		return err
+		return "", fmt.Errorf("failed to connect to the Ethereum client: %v", err)
 	}
 
 	// Create an authorized transactor
 	auth, err := bind.NewKeyedTransactorWithChainID(chain.privateKey, chain.chainId)
 	if err != nil {
-		log.Log.Errorf("Failed to create transactor: %v", err)
-		return err
+		return "", fmt.Errorf("failed to create transactor: %v", err)
 	}
 
 	// Define the inputs for the report function
@@ -96,8 +87,7 @@ func (chain *DbcChain) Report(notifyType mt.NotifyType, stakingType mt.StakingTy
 	// Encode the function call
 	data, err := chain.abi.Pack("report", notifyType, projectName, stakingType, machineId)
 	if err != nil {
-		log.Log.Errorf("Failed to pack data: %v", err)
-		return err
+		return "", fmt.Errorf("failed to pack data: %v", err)
 	}
 
 	publicAddress := crypto.PubkeyToAddress(chain.privateKey.PublicKey)
@@ -110,24 +100,21 @@ func (chain *DbcChain) Report(notifyType mt.NotifyType, stakingType mt.StakingTy
 		Value: big.NewInt(0),
 		Data:  data,
 	}
-	gasLimit, err := client.EstimateGas(context.Background(), callMsg)
+	gasLimit, err := client.EstimateGas(ctx, callMsg)
 	if err != nil {
-		log.Log.Errorf("Failed to estimate gas limit: %v", err)
-		return err
+		return "", fmt.Errorf("failed to estimate gas limit: %v", err)
 	}
 
 	// Get the gas price
-	gasPrice, err := client.SuggestGasPrice(context.Background())
+	gasPrice, err := client.SuggestGasPrice(ctx)
 	if err != nil {
-		log.Log.Errorf("Failed to suggest gas price: %v", err)
-		return err
+		return "", fmt.Errorf("failed to suggest gas price: %v", err)
 	}
 
 	// Fetch the nonce for the public address
-	nonce, err := client.PendingNonceAt(context.Background(), publicAddress)
+	nonce, err := client.PendingNonceAt(ctx, publicAddress)
 	if err != nil {
-		log.Log.Errorf("Failed to get nonce: %v", err)
-		return err
+		return "", fmt.Errorf("failed to get nonce: %v", err)
 	}
 
 	// Create the transaction
@@ -136,15 +123,13 @@ func (chain *DbcChain) Report(notifyType mt.NotifyType, stakingType mt.StakingTy
 	// Sign the transaction
 	signedTx, err := auth.Signer(auth.From, tx)
 	if err != nil {
-		log.Log.Errorf("Failed to sign transaction: %v", err)
-		return err
+		return "", fmt.Errorf("failed to sign transaction: %v", err)
 	}
 
 	// Send the transaction
-	err = client.SendTransaction(context.Background(), signedTx)
+	err = client.SendTransaction(ctx, signedTx)
 	if err != nil {
-		log.Log.Errorf("Failed to send transaction: %v", err)
-		return err
+		return signedTx.Hash().Hex(), fmt.Errorf("failed to send transaction: %v", err)
 	}
-	return nil
+	return signedTx.Hash().Hex(), nil
 }
