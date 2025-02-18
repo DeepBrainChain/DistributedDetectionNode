@@ -34,11 +34,4 @@ type WsOnlineRequest MachineKey
 // 	Model string `json:"model" bson:"model"`
 // }
 
-type WsMachineInfoRequest struct {
-	// Project string `json:"project" bson:"project"`
-	// Models         []ModelInfo `json:"models" bson:"models"`
-	GPUNames []string `json:"gpu_names" bson:"gpu_names"`
-	// UtilizationGPU int      `json:"utilization_gpu" bson:"utilization_gpu"` // GPU 使用率，乘以 100 取整
-	MemoryTotal int64 `json:"memory_total" bson:"memory_total"` // 显存总大小，单位 MB 或者 MiB
-	// MemoryUsed     int64    `json:"memory_used" bson:"memory_used"`         // 已用显存，单位 MB 或者 MiB
-}
+type WsMachineInfoRequest MachineInfo

@@ -2,12 +2,15 @@ package http
 
 import (
 	"context"
+	"errors"
 	ohttp "net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+	"go.mongodb.org/mongo-driver/mongo"
 
+	"DistributedDetectionNode/db"
 	"DistributedDetectionNode/dbc"
 	"DistributedDetectionNode/log"
 	"DistributedDetectionNode/types"
@@ -47,6 +50,40 @@ func RegisterMachine(ctx *gin.Context, chain *dbc.DbcChain) {
 		return
 	}
 	log.Log.WithFields(logrus.Fields{"machine": req}).Info("machine register success with hash ", hash)
+
+	mi, err := db.MDB.GetMachineInfo(
+		ctx1,
+		types.MachineKey{
+			MachineId:   req.MachineId,
+			Project:     req.ProjectName,
+			ContainerId: req.ContainerId,
+		},
+	)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			if err := db.MDB.RegisterMachine(ctx1, types.MachineKey{
+				MachineId:   req.MachineId,
+				Project:     req.ProjectName,
+				ContainerId: req.ContainerId,
+			}); err != nil {
+				log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("machine register failed: %v when insert database", err)
+				rsp.Code = int(types.ErrCodeDatabase)
+				rsp.Message = err.Error()
+				ctx.JSON(ohttp.StatusInternalServerError, rsp)
+				return
+			}
+		} else {
+			log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("machine register failed: %v when query database", err)
+			rsp.Code = int(types.ErrCodeDatabase)
+			rsp.Message = err.Error()
+			ctx.JSON(ohttp.StatusInternalServerError, rsp)
+			return
+		}
+	}
+	if !mi.RegisterTime.IsZero() {
+		rsp.Message = "already registed"
+	}
+
 	ctx.JSON(ohttp.StatusOK, rsp)
 }
 
@@ -82,6 +119,18 @@ func UnregisterMachine(ctx *gin.Context, chain *dbc.DbcChain) {
 		return
 	}
 	log.Log.WithFields(logrus.Fields{"machine": req}).Info("machine unregister success with hash ", hash)
+
+	if err := db.MDB.UnregisterMachine(ctx1, types.MachineKey{
+		MachineId:   req.MachineId,
+		Project:     req.ProjectName,
+		ContainerId: req.ContainerId,
+	}); err != nil {
+		log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("machine unregister failed: %v when delete database", err)
+		rsp.Code = int(types.ErrCodeDatabase)
+		rsp.Message = err.Error()
+		ctx.JSON(ohttp.StatusInternalServerError, rsp)
+		return
+	}
 	ctx.JSON(ohttp.StatusOK, rsp)
 }
 

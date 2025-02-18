@@ -24,6 +24,7 @@ type ContractReportInfo struct {
 	ProjectName string      `json:"project_name"`
 	StakingType StakingType `json:"staking_type"`
 	MachineId   string      `json:"machine_id"`
+	ContainerId string      `json:"container_id" bson:"container_id"`
 }
 
 func (mr *ContractReportInfo) Validate() error {

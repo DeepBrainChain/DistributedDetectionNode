@@ -183,9 +183,20 @@ func handleWsMachineInfoRequest(ctx context.Context, c *websocket.Conn, machine 
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := db.MDB.AddMachineInfo(ctx, types.MachineKey(machine), time.UnixMilli(req.Timestamp), miReq); err != nil {
+	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel1()
+	mi, err := db.MDB.GetMachineInfo(ctx1, types.MachineKey(machine))
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{
+			"machine": machine,
+		}).Error("get machine info from database failed: ", err)
+	} else if mi.CalcPoint == 0 {
+		//
+	}
+
+	ctx2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel2()
+	if err := db.MDB.AddMachineTM(ctx2, types.MachineKey(machine), time.UnixMilli(req.Timestamp), miReq); err != nil {
 		writeWsResponse(c, machine, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,

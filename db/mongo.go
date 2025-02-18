@@ -20,6 +20,7 @@ type mongoDB struct {
 	Mongo                   *mongo.Client
 	machineOnlineCollection *mongo.Collection
 	machineInfoCollection   *mongo.Collection
+	machineTMCollection     *mongo.Collection
 }
 
 func InitMongo(ctx context.Context, uri, db string, eas int64) error {
@@ -38,7 +39,7 @@ func InitMongo(ctx context.Context, uri, db string, eas int64) error {
 		Mongo: client,
 	}
 
-	cl, err := client.Database(db).ListCollectionNames(ctx, bson.M{"name": "machine_info"})
+	cl, err := client.Database(db).ListCollectionNames(ctx, bson.M{"name": "machine_tm"})
 	if err != nil {
 		log.Log.Fatalf("List mongodb collection names failed: %v", err)
 		return err
@@ -54,7 +55,7 @@ func InitMongo(ctx context.Context, uri, db string, eas int64) error {
 		ccOpts := options.CreateCollection()
 		ccOpts.SetTimeSeriesOptions(tsOpts)
 		ccOpts.SetExpireAfterSeconds(eas)
-		if err := client.Database(db).CreateCollection(ctx, "machine_info", ccOpts); err != nil {
+		if err := client.Database(db).CreateCollection(ctx, "machine_tm", ccOpts); err != nil {
 			log.Log.Fatalf("Create time series collection failed: %v", err)
 			return err
 		}
@@ -63,6 +64,7 @@ func InitMongo(ctx context.Context, uri, db string, eas int64) error {
 
 	MDB.machineOnlineCollection = client.Database(db).Collection("machine_online")
 	MDB.machineInfoCollection = client.Database(db).Collection("machine_info")
+	MDB.machineTMCollection = client.Database(db).Collection("machine_tm")
 	return nil
 }
 
@@ -117,6 +119,26 @@ func (db *mongoDB) MachineOffline(ctx context.Context, machine types.MachineKey)
 		return err
 	}
 	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("delete online count ", result.DeletedCount)
+
+	update, err := db.machineInfoCollection.UpdateOne(
+		ctx,
+		bson.M{
+			"machine_id":   machine.MachineId,
+			"project":      machine.Project,
+			"container_id": machine.ContainerId,
+		},
+		bson.M{
+			"$set": bson.M{
+				"last_offline_time": time.Now(),
+			},
+		},
+		options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("update last offline time failed: ", err)
+		return err
+	}
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("update last offline time count ", update.ModifiedCount)
 	return nil
 }
 
@@ -135,30 +157,86 @@ func (db *mongoDB) GetMachineInfo(ctx context.Context, machine types.MachineKey)
 	return result, nil
 }
 
-func (db *mongoDB) AddMachineInfo(ctx context.Context, machine types.MachineKey, tm time.Time, info types.WsMachineInfoRequest) error {
-	result, err := db.machineInfoCollection.InsertOne(
-		ctx,
-		types.MDBMachineInfo{
-			Timestamp: tm,
-			Machine: types.MDBMetaField{
-				MachineKey: machine,
-			},
-			GPUNames: info.GPUNames,
-			// UtilizationGPU: info.UtilizationGPU,
-			MemoryTotal: info.MemoryTotal,
-			// MemoryUsed:     info.MemoryUsed,
-		},
-	)
+func (db *mongoDB) RegisterMachine(ctx context.Context, machine types.MachineKey) error {
+	res, err := db.machineInfoCollection.InsertOne(ctx, types.MDBMachineInfo{
+		MachineKey:   machine,
+		CalcPoint:    0,
+		RegisterTime: time.Now(),
+	})
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("insert machine info failed: ", err)
 		return err
 	}
-	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("inserted machine info id ", result.InsertedID)
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("inserted machine info id ", res.InsertedID)
 	return nil
 }
 
-func (db *mongoDB) DeleteExpiredMachineInfo(ctx context.Context, tm time.Time) error {
-	result, err := db.machineInfoCollection.DeleteMany(
+func (db *mongoDB) UnregisterMachine(ctx context.Context, machine types.MachineKey) error {
+	result, err := db.machineInfoCollection.DeleteOne(
+		ctx,
+		bson.M{
+			"machine_id":   machine.MachineId,
+			"project":      machine.Project,
+			"container_id": machine.ContainerId,
+		},
+	)
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("delete machine info failed: ", err)
+		return err
+	}
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("delete machine info count ", result.DeletedCount)
+	return nil
+}
+
+func (db *mongoDB) SetMachineInfo(ctx context.Context, machine types.MachineKey, info types.WsMachineInfoRequest, calcPoint int32) error {
+	update, err := db.machineInfoCollection.UpdateOne(
+		ctx,
+		bson.M{
+			"machine_id":   machine.MachineId,
+			"project":      machine.Project,
+			"container_id": machine.ContainerId,
+		},
+		bson.M{
+			"$set": bson.M{
+				"gpu_names":        info.GPUNames,
+				"gpu_memory_total": info.GPUMemoryTotal,
+				"memory_total":     info.MemoryTotal,
+				"cpu_type":         info.CpuType,
+				"wallet":           info.Wallet,
+				"calc_point":       calcPoint,
+			},
+		},
+		options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("set machine info failed: ", err)
+		return err
+	}
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("set machine info count ", update.ModifiedCount)
+	return nil
+}
+
+func (db *mongoDB) AddMachineTM(ctx context.Context, machine types.MachineKey, tm time.Time, info types.WsMachineInfoRequest) error {
+	result, err := db.machineTMCollection.InsertOne(
+		ctx,
+		types.MDBMachineTM{
+			Timestamp: tm,
+			Machine: types.MDBMetaField{
+				MachineKey: machine,
+			},
+			MachineInfo: types.MachineInfo(info),
+		},
+	)
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("insert machine tm info failed: ", err)
+		return err
+	}
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("inserted machine tm info id ", result.InsertedID)
+	return nil
+}
+
+func (db *mongoDB) DeleteExpiredMachineTM(ctx context.Context, tm time.Time) error {
+	result, err := db.machineTMCollection.DeleteMany(
 		ctx,
 		bson.M{
 			"timestamp": bson.M{"$lt": tm},
@@ -172,8 +250,8 @@ func (db *mongoDB) DeleteExpiredMachineInfo(ctx context.Context, tm time.Time) e
 	return nil
 }
 
-func (db *mongoDB) GetAllLatestmachineInfo(ctx context.Context) []types.MDBMachineInfo {
-	di := make([]types.MDBMachineInfo, 0)
+func (db *mongoDB) GetAllLatestMachineTM(ctx context.Context) []types.MDBMachineTM {
+	di := make([]types.MDBMachineTM, 0)
 	pipeline := mongo.Pipeline{
 		// {{"$match", bson.D{{"timestamp", bson.D{{"$gt", specificTimestamp}}}}}},
 		{{"$sort", bson.D{{"machine.machine_id", 1}, {"timestamp", -1}}}},
@@ -183,14 +261,14 @@ func (db *mongoDB) GetAllLatestmachineInfo(ctx context.Context) []types.MDBMachi
 		}}},
 		{{"$replaceRoot", bson.D{{"newRoot", "$latestRecord"}}}},
 	}
-	cursor, err := db.machineInfoCollection.Aggregate(ctx, pipeline)
+	cursor, err := db.machineTMCollection.Aggregate(ctx, pipeline)
 	if err != nil {
 		log.Log.Errorf("Aggregate documents of all latest machine info failed: %v", err)
 		return di
 	}
 	defer cursor.Close(ctx)
 	for cursor.Next(ctx) {
-		result := types.MDBMachineInfo{}
+		result := types.MDBMachineTM{}
 		if err := cursor.Decode(&result); err != nil {
 			log.Log.Errorf("Decode aggregate cursor into struct failed: %v", err)
 		} else {
