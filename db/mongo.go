@@ -188,7 +188,7 @@ func (db *mongoDB) UnregisterMachine(ctx context.Context, machine types.MachineK
 	return nil
 }
 
-func (db *mongoDB) SetMachineInfo(ctx context.Context, machine types.MachineKey, info types.WsMachineInfoRequest, calcPoint int32) error {
+func (db *mongoDB) SetMachineInfo(ctx context.Context, machine types.MachineKey, info types.WsMachineInfoRequest, calcPoint float64) error {
 	update, err := db.machineInfoCollection.UpdateOne(
 		ctx,
 		bson.M{

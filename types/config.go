@@ -16,12 +16,17 @@ type Prometheus struct {
 	RemoteWriteURL string `json:"RemoteWriteURL"`
 }
 
-type ChainConfig struct {
+type ContractConfig struct {
 	AbiFile         string `json:"AbiFile"`
-	Rpc             string `json:"Rpc"`
 	ContractAddress string `json:"ContractAddress"`
-	PrivateKey      string `json:"PrivateKey"`
 	ChainId         int64  `json:"ChainId"`
+}
+
+type ChainConfig struct {
+	Rpc                 string         `json:"Rpc"`
+	PrivateKey          string         `json:"PrivateKey"`
+	ReportContract      ContractConfig `json:"ReportContract"`
+	MachineInfoContract ContractConfig `json:"MachineInfoContract"`
 }
 
 type Certificate struct {

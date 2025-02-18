@@ -10,7 +10,7 @@ type MDBMachineOnline struct {
 type MDBMachineInfo struct {
 	MachineKey
 	MachineInfo
-	CalcPoint       int32     `json:"calc_point" bson:"calc_point"`
+	CalcPoint       float64   `json:"calc_point" bson:"calc_point"`
 	RegisterTime    time.Time `json:"register_time" bson:"register_time"`
 	LastOfflineTime time.Time `json:"last_offline_time" bson:"last_offline_time"`
 }

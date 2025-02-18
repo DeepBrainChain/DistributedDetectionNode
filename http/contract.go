@@ -18,7 +18,7 @@ import (
 
 var ReportContractTimeout = 60 * time.Second
 
-func RegisterMachine(ctx *gin.Context, chain *dbc.DbcChain) {
+func RegisterMachine(ctx *gin.Context) {
 	rsp := types.BaseHttpResponse{
 		Code:    0,
 		Message: "ok",
@@ -41,7 +41,7 @@ func RegisterMachine(ctx *gin.Context, chain *dbc.DbcChain) {
 	ctx1, cancel := context.WithTimeout(ctx.Request.Context(), ReportContractTimeout)
 	defer cancel()
 
-	hash, err := chain.Report(ctx1, types.MachineRegister, req.StakingType, req.ProjectName, req.MachineId)
+	hash, err := dbc.DbcChain.Report(ctx1, types.MachineRegister, req.StakingType, req.ProjectName, req.MachineId)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("machine register failed: %v with hash %v", err, hash)
 		rsp.Code = int(types.ErrCodeDbcChain)
@@ -87,7 +87,7 @@ func RegisterMachine(ctx *gin.Context, chain *dbc.DbcChain) {
 	ctx.JSON(ohttp.StatusOK, rsp)
 }
 
-func UnregisterMachine(ctx *gin.Context, chain *dbc.DbcChain) {
+func UnregisterMachine(ctx *gin.Context) {
 	rsp := types.BaseHttpResponse{
 		Code:    0,
 		Message: "ok",
@@ -110,7 +110,7 @@ func UnregisterMachine(ctx *gin.Context, chain *dbc.DbcChain) {
 	ctx1, cancel := context.WithTimeout(ctx.Request.Context(), ReportContractTimeout)
 	defer cancel()
 
-	hash, err := chain.Report(ctx1, types.MachineUnregister, req.StakingType, req.ProjectName, req.MachineId)
+	hash, err := dbc.DbcChain.Report(ctx1, types.MachineUnregister, req.StakingType, req.ProjectName, req.MachineId)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("machine unregister failed: %v with hash %v", err, hash)
 		rsp.Code = int(types.ErrCodeDbcChain)
@@ -134,7 +134,7 @@ func UnregisterMachine(ctx *gin.Context, chain *dbc.DbcChain) {
 	ctx.JSON(ohttp.StatusOK, rsp)
 }
 
-func OnlineMachine(ctx *gin.Context, chain *dbc.DbcChain) {
+func OnlineMachine(ctx *gin.Context) {
 	rsp := types.BaseHttpResponse{
 		Code:    0,
 		Message: "ok",
@@ -157,7 +157,7 @@ func OnlineMachine(ctx *gin.Context, chain *dbc.DbcChain) {
 	ctx1, cancel := context.WithTimeout(ctx.Request.Context(), ReportContractTimeout)
 	defer cancel()
 
-	hash, err := chain.Report(ctx1, types.MachineOnline, req.StakingType, req.ProjectName, req.MachineId)
+	hash, err := dbc.DbcChain.Report(ctx1, types.MachineOnline, req.StakingType, req.ProjectName, req.MachineId)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("machine online failed: %v with hash %v", err, hash)
 		rsp.Code = int(types.ErrCodeDbcChain)
@@ -169,7 +169,7 @@ func OnlineMachine(ctx *gin.Context, chain *dbc.DbcChain) {
 	ctx.JSON(ohttp.StatusOK, rsp)
 }
 
-func OfflineMachine(ctx *gin.Context, chain *dbc.DbcChain) {
+func OfflineMachine(ctx *gin.Context) {
 	rsp := types.BaseHttpResponse{
 		Code:    0,
 		Message: "ok",
@@ -192,7 +192,7 @@ func OfflineMachine(ctx *gin.Context, chain *dbc.DbcChain) {
 	ctx1, cancel := context.WithTimeout(ctx.Request.Context(), ReportContractTimeout)
 	defer cancel()
 
-	hash, err := chain.Report(ctx1, types.MachineOffline, req.StakingType, req.ProjectName, req.MachineId)
+	hash, err := dbc.DbcChain.Report(ctx1, types.MachineOffline, req.StakingType, req.ProjectName, req.MachineId)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("machine offline failed: %v with hash %v", err, hash)
 		rsp.Code = int(types.ErrCodeDbcChain)

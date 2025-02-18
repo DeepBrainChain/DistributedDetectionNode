@@ -139,8 +139,21 @@ func TestContractReport(t *testing.T) {
 		ctx, cancel = context.WithDeadline(ctx, deadline.Add(-time.Second))
 		defer cancel()
 	}
-	chain, err := InitDbcChain(ctx, "ai_abi.json", dbcTestNetRPC, contractAddressOnTestnet, privateKey, dbcTestNetChainID)
-	if err != nil {
+	chainConfig := mt.ChainConfig{
+		Rpc:        dbcTestNetRPC,
+		PrivateKey: privateKey,
+		ReportContract: mt.ContractConfig{
+			AbiFile:         "ai_abi.json",
+			ContractAddress: contractAddressOnTestnet,
+			ChainId:         dbcTestNetChainID,
+		},
+		MachineInfoContract: mt.ContractConfig{
+			AbiFile:         "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0.json",
+			ContractAddress: "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0",
+			ChainId:         0,
+		},
+	}
+	if err := InitDbcChain(ctx, chainConfig); err != nil {
 		log.Fatalf("Failed to init dbc chain: %v", err)
 	}
 
@@ -150,7 +163,7 @@ func TestContractReport(t *testing.T) {
 	// }
 	// log.Printf("Unregister machine success with hash %v", hash)
 
-	hash, err := chain.Report(ctx, mt.MachineRegister, mt.ShortTerm, "deeplink", "123456789")
+	hash, err := DbcChain.Report(ctx, mt.MachineRegister, mt.ShortTerm, "deeplink", "123456789")
 	if err != nil {
 		log.Fatalf("Register machine failed: %v with hash %v", err, hash)
 	}
@@ -162,19 +175,19 @@ func TestContractReport(t *testing.T) {
 	// }
 	// log.Printf("Register machine success with hash %v", hash)
 
-	hash, err = chain.Report(ctx, mt.MachineOnline, mt.ShortTerm, "deeplink", "123456789")
+	hash, err = DbcChain.Report(ctx, mt.MachineOnline, mt.ShortTerm, "deeplink", "123456789")
 	if err != nil {
 		log.Fatalf("Online machine failed: %v with hash %v", err, hash)
 	}
 	log.Printf("Online machine success with hash %v", hash)
 
-	hash, err = chain.Report(ctx, mt.MachineOffline, mt.ShortTerm, "deeplink", "123456789")
+	hash, err = DbcChain.Report(ctx, mt.MachineOffline, mt.ShortTerm, "deeplink", "123456789")
 	if err != nil {
 		log.Fatalf("Offline machine failed: %v with hash %v", err, hash)
 	}
 	log.Printf("Offline machine success with hash %v", hash)
 
-	hash, err = chain.Report(ctx, mt.MachineUnregister, mt.ShortTerm, "deeplink", "123456789")
+	hash, err = DbcChain.Report(ctx, mt.MachineUnregister, mt.ShortTerm, "deeplink", "123456789")
 	if err != nil {
 		log.Fatalf("Unregister machine failed: %v with hash %v", err, hash)
 	}

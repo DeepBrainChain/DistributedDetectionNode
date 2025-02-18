@@ -1,4 +1,4 @@
-package dbc
+package calculator
 
 import (
 	"log"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// go test -v -timeout 30s -count=1 -run TestCalcPoint DistributedDetectionNode/dbc
+// go test -v -timeout 30s -count=1 -run TestCalcPoint DistributedDetectionNode/dbc/calculator
 func TestCalcPoint(t *testing.T) {
 	gpuNames := []string{"NVIDIA GeForce RTX 4060 Ti"}
 	// gpuMemoryTotals := []int32{8192}

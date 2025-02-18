@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"DistributedDetectionNode/db"
+	"DistributedDetectionNode/dbc"
+	"DistributedDetectionNode/dbc/calculator"
 	hmp "DistributedDetectionNode/http"
 	"DistributedDetectionNode/log"
 	"DistributedDetectionNode/types"
@@ -14,7 +16,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func handleWsRequest(ctx context.Context, c *websocket.Conn, machine *types.WsOnlineRequest, req *types.WsRequest, pm *hmp.PrometheusMetrics) error {
+func handleWsRequest(
+	ctx context.Context,
+	c *websocket.Conn,
+	machine *types.WsOnlineRequest,
+	req *types.WsRequest,
+	pm *hmp.PrometheusMetrics,
+) error {
 	switch req.Type {
 	case uint32(types.WsMtOnline):
 		handleWsOnlineRequest(ctx, c, machine, req, pm)
@@ -41,7 +49,13 @@ func handleWsRequest(ctx context.Context, c *websocket.Conn, machine *types.WsOn
 	return nil
 }
 
-func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, machine *types.WsOnlineRequest, req *types.WsRequest, pm *hmp.PrometheusMetrics) error {
+func handleWsOnlineRequest(
+	ctx context.Context,
+	c *websocket.Conn,
+	machine *types.WsOnlineRequest,
+	req *types.WsRequest,
+	pm *hmp.PrometheusMetrics,
+) error {
 	if machine.MachineId != "" {
 		writeWsResponse(c, *machine, &types.WsResponse{
 			WsHeader: types.WsHeader{
@@ -83,7 +97,7 @@ func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, machine *type
 		return nil
 	}
 
-	ctx1, cancel1 := context.WithTimeout(ctx, 5*time.Second)
+	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel1()
 	if db.MDB.IsMachineOnline(ctx1, types.MachineKey(*onlineReq)) {
 		writeWsResponse(c, *onlineReq, &types.WsResponse{
@@ -105,7 +119,7 @@ func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, machine *type
 		return nil
 	}
 
-	ctx2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
+	ctx2, cancel2 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel2()
 	if err := db.MDB.MachineOnline(ctx2, types.MachineKey(*onlineReq)); err != nil {
 		writeWsResponse(c, *onlineReq, &types.WsResponse{
@@ -141,7 +155,13 @@ func handleWsOnlineRequest(ctx context.Context, c *websocket.Conn, machine *type
 	return nil
 }
 
-func handleWsMachineInfoRequest(ctx context.Context, c *websocket.Conn, machine types.WsOnlineRequest, req *types.WsRequest, pm *hmp.PrometheusMetrics) error {
+func handleWsMachineInfoRequest(
+	ctx context.Context,
+	c *websocket.Conn,
+	machine types.WsOnlineRequest,
+	req *types.WsRequest,
+	pm *hmp.PrometheusMetrics,
+) error {
 	if machine.MachineId == "" {
 		log.Log.WithFields(logrus.Fields{
 			"machine": machine,
@@ -191,12 +211,64 @@ func handleWsMachineInfoRequest(ctx context.Context, c *websocket.Conn, machine 
 			"machine": machine,
 		}).Error("get machine info from database failed: ", err)
 	} else if mi.CalcPoint == 0 {
-		//
+		calcPoint := calculator.CalculatePointFromReport(
+			miReq.GPUNames,
+			miReq.GPUMemoryTotal,
+			miReq.MemoryTotal,
+		)
+		if calcPoint == 0 {
+			log.Log.WithFields(logrus.Fields{
+				"machine": machine,
+			}).Error("calculate gpu point from report failed: ", miReq)
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"machine": machine,
+			}).Infof("calculate gpu point from reported machine info %v => %v", miReq, calcPoint)
+
+			ctx2, cancel2 := context.WithTimeout(ctx, 60*time.Second)
+			defer cancel2()
+			if hash, err := dbc.DbcChain.SetMachineInfo(
+				ctx2,
+				types.MachineKey(machine),
+				types.MachineInfo(miReq),
+				int64(calcPoint*10000),
+			); err != nil {
+				log.Log.WithFields(logrus.Fields{
+					"machine": machine,
+				}).Error("set machine info in chain contract failed: ", err)
+			} else {
+				log.Log.WithFields(logrus.Fields{
+					"machine": machine,
+				}).Info("set machine info in chain contract success with hash ", hash)
+
+				ctx3, cancel3 := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel3()
+				if err := db.MDB.SetMachineInfo(
+					ctx3,
+					types.MachineKey(machine),
+					miReq,
+					calcPoint,
+				); err != nil {
+					log.Log.WithFields(logrus.Fields{
+						"machine": machine,
+					}).Error("set machine info in database failed: ", err)
+				} else {
+					log.Log.WithFields(logrus.Fields{
+						"machine": machine,
+					}).Info("set machine info in database success")
+				}
+			}
+		}
 	}
 
-	ctx2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
+	ctx2, cancel2 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel2()
-	if err := db.MDB.AddMachineTM(ctx2, types.MachineKey(machine), time.UnixMilli(req.Timestamp), miReq); err != nil {
+	if err := db.MDB.AddMachineTM(
+		ctx2,
+		types.MachineKey(machine),
+		time.UnixMilli(req.Timestamp),
+		miReq,
+	); err != nil {
 		writeWsResponse(c, machine, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,

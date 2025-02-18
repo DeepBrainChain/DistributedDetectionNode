@@ -76,8 +76,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	chain, err := dbc.InitDbcChain(ctx, cfg.Chain.AbiFile, cfg.Chain.Rpc, cfg.Chain.ContractAddress, cfg.Chain.PrivateKey, cfg.Chain.ChainId)
-	if err != nil {
+	if err := dbc.InitDbcChain(ctx, cfg.Chain); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
@@ -110,16 +109,16 @@ func main() {
 	c0 := router.Group("/api/v0/contract")
 	{
 		c0.POST("/register", func(ctx *gin.Context) {
-			hmp.RegisterMachine(ctx, chain)
+			hmp.RegisterMachine(ctx)
 		})
 		c0.POST("/unregister", func(ctx *gin.Context) {
-			hmp.UnregisterMachine(ctx, chain)
+			hmp.UnregisterMachine(ctx)
 		})
 		c0.POST("/online", func(ctx *gin.Context) {
-			hmp.OnlineMachine(ctx, chain)
+			hmp.OnlineMachine(ctx)
 		})
 		c0.POST("/offline", func(ctx *gin.Context) {
-			hmp.OfflineMachine(ctx, chain)
+			hmp.OfflineMachine(ctx)
 		})
 	}
 	router.GET("/websocket", func(c *gin.Context) {
