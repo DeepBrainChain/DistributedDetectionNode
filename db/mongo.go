@@ -220,10 +220,8 @@ func (db *mongoDB) AddMachineTM(ctx context.Context, machine types.MachineKey, t
 	result, err := db.machineTMCollection.InsertOne(
 		ctx,
 		types.MDBMachineTM{
-			Timestamp: tm,
-			Machine: types.MDBMetaField{
-				MachineKey: machine,
-			},
+			Timestamp:   tm,
+			Machine:     machine,
 			MachineInfo: types.MachineInfo(info),
 		},
 	)

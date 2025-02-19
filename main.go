@@ -17,6 +17,7 @@ import (
 	"DistributedDetectionNode/types"
 	"DistributedDetectionNode/ws"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -102,7 +103,14 @@ func main() {
 	// 		"errors":     ctx.Errors.ByType(gin.ErrorTypePrivate).String(),
 	// 	}).Info("request details")
 	// })
-	router.Use(gin.LoggerWithFormatter(defaultLogFormatter), gin.Recovery())
+	corsConfig := cors.DefaultConfig()
+	// corsConfig.AllowAllOrigins = true
+	corsConfig.AllowOrigins = []string{"*"}
+	// corsConfig.AllowOrigins = []string{"https://example.com"}
+	corsConfig.AllowMethods = []string{"GET", "POST"}
+	// corsConfig.AllowHeaders = []string{"Origin", "Content-Type"}
+	corsConfig.AllowCredentials = true
+	router.Use(gin.LoggerWithFormatter(defaultLogFormatter), gin.Recovery(), cors.New(corsConfig))
 	router.GET("/metrics/prometheus", pm.Metrics)
 	// router.GET("/echo", ws.Echo)
 	// for dbc contract

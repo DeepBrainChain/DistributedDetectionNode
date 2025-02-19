@@ -79,8 +79,7 @@ func RegisterMachine(ctx *gin.Context) {
 			ctx.JSON(ohttp.StatusInternalServerError, rsp)
 			return
 		}
-	}
-	if !mi.RegisterTime.IsZero() {
+	} else if !mi.RegisterTime.IsZero() {
 		rsp.Message = "already registed"
 	}
 
