@@ -15,5 +15,6 @@ type MachineInfo struct {
 	MemoryTotal int64 `json:"memory_total" bson:"memory_total"` // 内存总大小，单位 字节
 	// MemoryUsed     int64    `json:"memory_used" bson:"memory_used"`         // 已用内存，单位 字节
 	CpuType string `json:"cpu_type" bson:"cpu_type"` // CPU 类型
+	CpuRate int32  `json:"cpu_rate" bson:"cpu_rate"` // CPU 频率
 	Wallet  string `json:"wallet" bson:"wallet"`     // 设备所有者的钱包地址
 }

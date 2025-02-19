@@ -18,6 +18,11 @@ type GpuInfo struct {
 
 var nvidiaGpuInfoList = []GpuInfo{
 	{
+		Name:        "2080 ti",
+		CudaCore:    4352,
+		MemoryTotal: 11,
+	},
+	{
 		Name:        "3060",
 		CudaCore:    3584,
 		MemoryTotal: 12,

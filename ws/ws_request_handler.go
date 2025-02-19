@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"DistributedDetectionNode/db"
@@ -99,7 +100,7 @@ func handleWsOnlineRequest(
 
 	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel1()
-	if db.MDB.IsMachineOnline(ctx1, types.MachineKey(*onlineReq)) {
+	if db.MDB.IsMachineOnline(ctx1, onlineReq.MachineKey) {
 		writeWsResponse(c, *onlineReq, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
@@ -119,9 +120,48 @@ func handleWsOnlineRequest(
 		return nil
 	}
 
+	{
+		ctx2, cancel2 := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel2()
+		if hash, err := dbc.DbcChain.Report(
+			ctx2,
+			types.MachineOnline,
+			onlineReq.StakingType,
+			onlineReq.Project,
+			onlineReq.MachineId,
+		); err != nil {
+			errMsg := fmt.Sprintf(
+				"machine online in chain contract failed with hash %v because of %v",
+				hash,
+				err,
+			)
+			writeWsResponse(c, *onlineReq, &types.WsResponse{
+				WsHeader: types.WsHeader{
+					Version:   0,
+					Timestamp: time.Now().Unix(),
+					Id:        req.Id,
+					Type:      req.Type,
+					PubKey:    []byte(""),
+					Sign:      []byte(""),
+				},
+				Code:    uint32(types.ErrCodeDbcChain),
+				Message: errMsg,
+				Body:    []byte(""),
+			})
+			log.Log.WithFields(logrus.Fields{
+				"machine": onlineReq,
+			}).Error(errMsg)
+			return nil
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"machine": onlineReq,
+			}).Info("machine online in chain contract success with hash ", hash)
+		}
+	}
+
 	ctx2, cancel2 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel2()
-	if err := db.MDB.MachineOnline(ctx2, types.MachineKey(*onlineReq)); err != nil {
+	if err := db.MDB.MachineOnline(ctx2, onlineReq.MachineKey); err != nil {
 		writeWsResponse(c, *onlineReq, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
@@ -205,7 +245,7 @@ func handleWsMachineInfoRequest(
 
 	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel1()
-	mi, err := db.MDB.GetMachineInfo(ctx1, types.MachineKey(machine))
+	mi, err := db.MDB.GetMachineInfo(ctx1, machine.MachineKey)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{
 			"machine": machine,
@@ -229,7 +269,7 @@ func handleWsMachineInfoRequest(
 			defer cancel2()
 			if hash, err := dbc.DbcChain.SetMachineInfo(
 				ctx2,
-				types.MachineKey(machine),
+				machine.MachineKey,
 				types.MachineInfo(miReq),
 				int64(calcPoint*10000),
 			); err != nil {
@@ -245,7 +285,7 @@ func handleWsMachineInfoRequest(
 				defer cancel3()
 				if err := db.MDB.SetMachineInfo(
 					ctx3,
-					types.MachineKey(machine),
+					machine.MachineKey,
 					miReq,
 					calcPoint,
 				); err != nil {
@@ -265,7 +305,7 @@ func handleWsMachineInfoRequest(
 	defer cancel2()
 	if err := db.MDB.AddMachineTM(
 		ctx2,
-		types.MachineKey(machine),
+		machine.MachineKey,
 		time.UnixMilli(req.Timestamp),
 		miReq,
 	); err != nil {

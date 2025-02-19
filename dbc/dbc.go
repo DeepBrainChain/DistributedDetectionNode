@@ -190,7 +190,7 @@ func (chain *dbcChain) SetMachineInfo(
 	info := machineinfos.MachineInfosMachineInfo{
 		MachineOwner: common.HexToAddress(mi.Wallet),
 		CalcPoint:    big.NewInt(calcPoint),
-		CpuRate:      big.NewInt(0),
+		CpuRate:      big.NewInt(int64(mi.CpuRate)),
 		GpuType:      mi.GPUNames[0],
 		GpuMem:       big.NewInt(int64(mi.GPUMemoryTotal[0])),
 		CpuType:      mi.CpuType,

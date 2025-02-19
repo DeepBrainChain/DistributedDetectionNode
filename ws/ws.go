@@ -1,11 +1,13 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"DistributedDetectionNode/db"
+	"DistributedDetectionNode/dbc"
 	hmp "DistributedDetectionNode/http"
 	"DistributedDetectionNode/log"
 	"DistributedDetectionNode/types"
@@ -51,7 +53,28 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 	}
 	defer func() {
 		if machine.MachineId != "" {
-			db.MDB.MachineOffline(r.Context(), types.MachineKey(machine))
+			ctx1, cancel1 := context.WithTimeout(r.Context(), 60*time.Second)
+			defer cancel1()
+			if hash, err := dbc.DbcChain.Report(
+				ctx1,
+				types.MachineOnline,
+				machine.StakingType,
+				machine.Project,
+				machine.MachineId,
+			); err != nil {
+				log.Log.WithFields(logrus.Fields{
+					"machine": machine,
+				}).Errorf(
+					"machine offline in chain contract failed with hash %v because of %v",
+					hash,
+					err,
+				)
+			} else {
+				log.Log.WithFields(logrus.Fields{
+					"machine": machine,
+				}).Info("machine offline in chain contract success with hash ", hash)
+			}
+			db.MDB.MachineOffline(r.Context(), machine.MachineKey)
 			// pm.DeleteMetrics(machine)
 		}
 		log.Log.WithFields(logrus.Fields{

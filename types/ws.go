@@ -28,7 +28,10 @@ const (
 	WsMtMachineInfo
 )
 
-type WsOnlineRequest MachineKey
+type WsOnlineRequest struct {
+	MachineKey
+	StakingType StakingType `json:"staking_type"`
+}
 
 // type ModelInfo struct {
 // 	Model string `json:"model" bson:"model"`
