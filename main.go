@@ -174,10 +174,16 @@ func main() {
 
 	// The context is used to inform the server it has 5 seconds to finish
 	// the request it is currently handling
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel1()
+	if err := srv.Shutdown(ctx1); err != nil {
 		log.Log.Fatal("Server forced to shutdown: ", err)
+	}
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+	if err := db.DisconnectMongo(ctx2); err != nil {
+		log.Log.Fatal("Disconnect mongo client: ", err)
 	}
 
 	log.Log.Println("Server exiting")

@@ -68,6 +68,10 @@ func InitMongo(ctx context.Context, uri, db string, eas int64) error {
 	return nil
 }
 
+func DisconnectMongo(ctx context.Context) error {
+	return MDB.Mongo.Disconnect(ctx)
+}
+
 func (db *mongoDB) Disconnect(ctx context.Context) {
 	if err := db.Mongo.Disconnect(ctx); err != nil {
 		panic(err)
