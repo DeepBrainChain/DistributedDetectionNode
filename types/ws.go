@@ -28,6 +28,12 @@ const (
 	WsMtMachineInfo
 )
 
+type WsConnInfo struct {
+	MachineKey
+	StakingType StakingType
+	ClientIP    string
+}
+
 type WsOnlineRequest struct {
 	MachineKey
 	StakingType StakingType `json:"staking_type"`

@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"time"
 
@@ -44,7 +45,7 @@ const (
 
 func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 	w, r := ctx.Writer, ctx.Request
-	var machine types.WsOnlineRequest
+	var wsConnInfo types.WsConnInfo
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, "Upgrade to websocket failed", http.StatusUpgradeRequired)
@@ -52,18 +53,18 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 		return
 	}
 	defer func() {
-		if machine.MachineId != "" {
+		if wsConnInfo.MachineId != "" {
 			ctx1, cancel1 := context.WithTimeout(r.Context(), 60*time.Second)
 			defer cancel1()
 			if hash, err := dbc.DbcChain.Report(
 				ctx1,
 				types.MachineOnline,
-				machine.StakingType,
-				machine.Project,
-				machine.MachineId,
+				wsConnInfo.StakingType,
+				wsConnInfo.Project,
+				wsConnInfo.MachineId,
 			); err != nil {
 				log.Log.WithFields(logrus.Fields{
-					"machine": machine,
+					"machine": wsConnInfo.MachineKey,
 				}).Errorf(
 					"machine offline in chain contract failed with hash %v because of %v",
 					hash,
@@ -71,14 +72,14 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 				)
 			} else {
 				log.Log.WithFields(logrus.Fields{
-					"machine": machine,
+					"machine": wsConnInfo.MachineKey,
 				}).Info("machine offline in chain contract success with hash ", hash)
 			}
-			db.MDB.MachineOffline(r.Context(), machine.MachineKey)
+			db.MDB.MachineOffline(r.Context(), wsConnInfo.MachineKey)
 			// pm.DeleteMetrics(machine)
 		}
 		log.Log.WithFields(logrus.Fields{
-			"machine": machine,
+			"machine": wsConnInfo.MachineKey,
 		}).Info("connection stopped")
 		c.Close()
 	}()
@@ -87,29 +88,37 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 	c.SetPingHandler(func(appData string) error {
 		c.SetReadDeadline(time.Now().Add(pongWait))
 		log.Log.WithFields(logrus.Fields{
-			"machine": machine,
-		}).Info("ping handler")
-		return nil
+			"machine": wsConnInfo.MachineKey,
+		}).Debug("ping handler")
+		err := c.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(writeWait))
+		if err == websocket.ErrCloseSent {
+			return nil
+		} else if e, ok := err.(net.Error); ok && e.Temporary() {
+			return nil
+		}
+		return err
 	})
+
+	wsConnInfo.ClientIP = ctx.ClientIP() // c.RemoteAddr()
 
 	for {
 		mt, message, err := c.ReadMessage()
 		if err != nil {
 			log.Log.WithFields(logrus.Fields{
-				"machine": machine,
+				"machine": wsConnInfo.MachineKey,
 			}).Info("read: ", err)
 			break
 		}
 		log.Log.WithFields(logrus.Fields{
-			"machine": machine,
+			"machine": wsConnInfo.MachineKey,
 		}).Infof("recv message: %v %s", mt, message)
 
 		req := &types.WsRequest{}
 		if err := json.Unmarshal(message, req); err != nil {
 			log.Log.WithFields(logrus.Fields{
-				"machine": machine,
+				"machine": wsConnInfo.MachineKey,
 			}).Error("parse request failed: ", err)
-			writeWsResponse(c, machine, &types.WsResponse{
+			writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 				WsHeader: types.WsHeader{
 					Version:   0,
 					Timestamp: time.Now().Unix(),
@@ -125,11 +134,11 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 			continue
 		}
 
-		handleWsRequest(r.Context(), c, &machine, req, pm)
+		handleWsRequest(r.Context(), c, &wsConnInfo, req, pm)
 	}
 }
 
-func writeWsResponse(c *websocket.Conn, machine types.WsOnlineRequest, res *types.WsResponse) error {
+func writeWsResponse(c *websocket.Conn, machine types.MachineKey, res *types.WsResponse) error {
 	resBytes, err := json.Marshal(res)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{

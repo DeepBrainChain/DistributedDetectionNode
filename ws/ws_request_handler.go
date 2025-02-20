@@ -20,20 +20,20 @@ import (
 func handleWsRequest(
 	ctx context.Context,
 	c *websocket.Conn,
-	machine *types.WsOnlineRequest,
+	wsConnInfo *types.WsConnInfo,
 	req *types.WsRequest,
 	pm *hmp.PrometheusMetrics,
 ) error {
 	switch req.Type {
 	case uint32(types.WsMtOnline):
-		handleWsOnlineRequest(ctx, c, machine, req, pm)
+		handleWsOnlineRequest(ctx, c, wsConnInfo, req, pm)
 	case uint32(types.WsMtMachineInfo):
-		handleWsMachineInfoRequest(ctx, c, *machine, req, pm)
+		handleWsMachineInfoRequest(ctx, c, *wsConnInfo, req, pm)
 	default:
 		log.Log.WithFields(logrus.Fields{
-			"machine": *machine,
+			"machine": wsConnInfo.MachineKey,
 		}).Error("unknowned request message type")
-		writeWsResponse(c, *machine, &types.WsResponse{
+		writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -53,12 +53,12 @@ func handleWsRequest(
 func handleWsOnlineRequest(
 	ctx context.Context,
 	c *websocket.Conn,
-	machine *types.WsOnlineRequest,
+	wsConnInfo *types.WsConnInfo,
 	req *types.WsRequest,
 	pm *hmp.PrometheusMetrics,
 ) error {
-	if machine.MachineId != "" {
-		writeWsResponse(c, *machine, &types.WsResponse{
+	if wsConnInfo.MachineId != "" {
+		writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -72,7 +72,7 @@ func handleWsOnlineRequest(
 			Body:    []byte(""),
 		})
 		log.Log.WithFields(logrus.Fields{
-			"machine": *machine,
+			"machine": wsConnInfo.MachineKey,
 		}).Error("device has been online, repeated requests")
 		return nil
 	}
@@ -80,9 +80,9 @@ func handleWsOnlineRequest(
 	onlineReq := &types.WsOnlineRequest{}
 	if err := json.Unmarshal(req.Body, onlineReq); err != nil {
 		log.Log.WithFields(logrus.Fields{
-			"machine": *machine,
+			"machine": *wsConnInfo,
 		}).Error("parse online request failed: ", err)
-		writeWsResponse(c, *machine, &types.WsResponse{
+		writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -101,7 +101,7 @@ func handleWsOnlineRequest(
 	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel1()
 	if db.MDB.IsMachineOnline(ctx1, onlineReq.MachineKey) {
-		writeWsResponse(c, *onlineReq, &types.WsResponse{
+		writeWsResponse(c, onlineReq.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -135,7 +135,7 @@ func handleWsOnlineRequest(
 				hash,
 				err,
 			)
-			writeWsResponse(c, *onlineReq, &types.WsResponse{
+			writeWsResponse(c, onlineReq.MachineKey, &types.WsResponse{
 				WsHeader: types.WsHeader{
 					Version:   0,
 					Timestamp: time.Now().Unix(),
@@ -162,7 +162,7 @@ func handleWsOnlineRequest(
 	ctx2, cancel2 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel2()
 	if err := db.MDB.MachineOnline(ctx2, onlineReq.MachineKey); err != nil {
-		writeWsResponse(c, *onlineReq, &types.WsResponse{
+		writeWsResponse(c, onlineReq.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -178,8 +178,9 @@ func handleWsOnlineRequest(
 		return nil
 	}
 
-	*machine = *onlineReq
-	writeWsResponse(c, *machine, &types.WsResponse{
+	wsConnInfo.MachineKey = onlineReq.MachineKey
+	wsConnInfo.StakingType = onlineReq.StakingType
+	writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 		WsHeader: types.WsHeader{
 			Version:   0,
 			Timestamp: time.Now().Unix(),
@@ -198,15 +199,15 @@ func handleWsOnlineRequest(
 func handleWsMachineInfoRequest(
 	ctx context.Context,
 	c *websocket.Conn,
-	machine types.WsOnlineRequest,
+	wsConnInfo types.WsConnInfo,
 	req *types.WsRequest,
 	pm *hmp.PrometheusMetrics,
 ) error {
-	if machine.MachineId == "" {
+	if wsConnInfo.MachineId == "" {
 		log.Log.WithFields(logrus.Fields{
-			"machine": machine,
+			"machine": wsConnInfo.MachineKey,
 		}).Error("node id is empty, need online device first")
-		writeWsResponse(c, machine, &types.WsResponse{
+		writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -225,9 +226,9 @@ func handleWsMachineInfoRequest(
 	miReq := types.WsMachineInfoRequest{}
 	if err := json.Unmarshal(req.Body, &miReq); err != nil {
 		log.Log.WithFields(logrus.Fields{
-			"machine": machine,
+			"machine": wsConnInfo.MachineKey,
 		}).Error("parse machine info request failed: ", err)
-		writeWsResponse(c, machine, &types.WsResponse{
+		writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -245,10 +246,10 @@ func handleWsMachineInfoRequest(
 
 	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel1()
-	mi, err := db.MDB.GetMachineInfo(ctx1, machine.MachineKey)
+	mi, err := db.MDB.GetMachineInfo(ctx1, wsConnInfo.MachineKey)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{
-			"machine": machine,
+			"machine": wsConnInfo.MachineKey,
 		}).Error("get machine info from database failed: ", err)
 	} else if mi.CalcPoint == 0 {
 		calcPoint := calculator.CalculatePointFromReport(
@@ -258,43 +259,43 @@ func handleWsMachineInfoRequest(
 		)
 		if calcPoint == 0 {
 			log.Log.WithFields(logrus.Fields{
-				"machine": machine,
+				"machine": wsConnInfo.MachineKey,
 			}).Error("calculate gpu point from report failed: ", miReq)
 		} else {
 			log.Log.WithFields(logrus.Fields{
-				"machine": machine,
+				"machine": wsConnInfo.MachineKey,
 			}).Infof("calculate gpu point from reported machine info %v => %v", miReq, calcPoint)
 
 			ctx2, cancel2 := context.WithTimeout(ctx, 60*time.Second)
 			defer cancel2()
 			if hash, err := dbc.DbcChain.SetMachineInfo(
 				ctx2,
-				machine.MachineKey,
+				wsConnInfo.MachineKey,
 				types.MachineInfo(miReq),
 				int64(calcPoint*10000),
 			); err != nil {
 				log.Log.WithFields(logrus.Fields{
-					"machine": machine,
+					"machine": wsConnInfo.MachineKey,
 				}).Error("set machine info in chain contract failed: ", err)
 			} else {
 				log.Log.WithFields(logrus.Fields{
-					"machine": machine,
+					"machine": wsConnInfo.MachineKey,
 				}).Info("set machine info in chain contract success with hash ", hash)
 
 				ctx3, cancel3 := context.WithTimeout(ctx, 10*time.Second)
 				defer cancel3()
 				if err := db.MDB.SetMachineInfo(
 					ctx3,
-					machine.MachineKey,
+					wsConnInfo.MachineKey,
 					miReq,
 					calcPoint,
 				); err != nil {
 					log.Log.WithFields(logrus.Fields{
-						"machine": machine,
+						"machine": wsConnInfo.MachineKey,
 					}).Error("set machine info in database failed: ", err)
 				} else {
 					log.Log.WithFields(logrus.Fields{
-						"machine": machine,
+						"machine": wsConnInfo.MachineKey,
 					}).Info("set machine info in database success")
 				}
 			}
@@ -305,11 +306,11 @@ func handleWsMachineInfoRequest(
 	defer cancel2()
 	if err := db.MDB.AddMachineTM(
 		ctx2,
-		machine.MachineKey,
+		wsConnInfo.MachineKey,
 		time.UnixMilli(req.Timestamp),
 		miReq,
 	); err != nil {
-		writeWsResponse(c, machine, &types.WsResponse{
+		writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
 				Timestamp: time.Now().Unix(),
@@ -327,9 +328,9 @@ func handleWsMachineInfoRequest(
 
 	// pm.SetMetrics(nodeId, miReq)
 	log.Log.WithFields(logrus.Fields{
-		"machine": machine,
+		"machine": wsConnInfo.MachineKey,
 	}).WithField("machine info", miReq).Info("update machine info")
-	writeWsResponse(c, machine, &types.WsResponse{
+	writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 		WsHeader: types.WsHeader{
 			Version:   0,
 			Timestamp: time.Now().Unix(),
