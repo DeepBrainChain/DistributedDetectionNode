@@ -180,6 +180,7 @@ func handleWsOnlineRequest(
 
 	wsConnInfo.MachineKey = onlineReq.MachineKey
 	wsConnInfo.StakingType = onlineReq.StakingType
+	wsConns.Store(c, struct{}{})
 	writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 		WsHeader: types.WsHeader{
 			Version:   0,

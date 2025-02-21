@@ -180,6 +180,8 @@ func main() {
 		log.Log.Fatal("Server forced to shutdown: ", err)
 	}
 
+	ws.ShutdownAllWsConns()
+
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()
 	if err := db.DisconnectMongo(ctx2); err != nil {

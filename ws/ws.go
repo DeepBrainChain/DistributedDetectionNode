@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"DistributedDetectionNode/db"
@@ -32,6 +33,8 @@ var upgrader = websocket.Upgrader{
 	},
 } // use default options
 
+var wsConns sync.Map
+
 const (
 	// Time allowed to write a message to the peer.
 	writeWait = 10 * time.Second
@@ -43,6 +46,16 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 )
 
+func ShutdownAllWsConns() {
+	wsConns.Range(func(key, value any) bool {
+		if conn, ok := key.(*websocket.Conn); ok {
+			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			conn.Close()
+		}
+		return true
+	})
+}
+
 func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 	w, r := ctx.Writer, ctx.Request
 	var wsConnInfo types.WsConnInfo
@@ -53,31 +66,6 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 		return
 	}
 	defer func() {
-		if wsConnInfo.MachineId != "" {
-			ctx1, cancel1 := context.WithTimeout(r.Context(), 60*time.Second)
-			defer cancel1()
-			if hash, err := dbc.DbcChain.Report(
-				ctx1,
-				types.MachineOnline,
-				wsConnInfo.StakingType,
-				wsConnInfo.Project,
-				wsConnInfo.MachineId,
-			); err != nil {
-				log.Log.WithFields(logrus.Fields{
-					"machine": wsConnInfo.MachineKey,
-				}).Errorf(
-					"machine offline in chain contract failed with hash %v because of %v",
-					hash,
-					err,
-				)
-			} else {
-				log.Log.WithFields(logrus.Fields{
-					"machine": wsConnInfo.MachineKey,
-				}).Info("machine offline in chain contract success with hash ", hash)
-			}
-			db.MDB.MachineOffline(r.Context(), wsConnInfo.MachineKey)
-			// pm.DeleteMetrics(machine)
-		}
 		log.Log.WithFields(logrus.Fields{
 			"machine": wsConnInfo.MachineKey,
 		}).Info("connection stopped")
@@ -135,6 +123,32 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 		}
 
 		handleWsRequest(r.Context(), c, &wsConnInfo, req, pm)
+	}
+
+	if wsConnInfo.MachineId != "" {
+		ctx1, cancel1 := context.WithTimeout(r.Context(), 60*time.Second)
+		defer cancel1()
+		if hash, err := dbc.DbcChain.Report(
+			ctx1,
+			types.MachineOnline,
+			wsConnInfo.StakingType,
+			wsConnInfo.Project,
+			wsConnInfo.MachineId,
+		); err != nil {
+			log.Log.WithFields(logrus.Fields{
+				"machine": wsConnInfo.MachineKey,
+			}).Errorf(
+				"machine offline in chain contract failed with hash %v because of %v",
+				hash,
+				err,
+			)
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"machine": wsConnInfo.MachineKey,
+			}).Info("machine offline in chain contract success with hash ", hash)
+		}
+		db.MDB.MachineOffline(r.Context(), wsConnInfo.MachineKey)
+		// pm.DeleteMetrics(machine)
 	}
 }
 
