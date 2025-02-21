@@ -12,7 +12,12 @@ func TestCalcPoint(t *testing.T) {
 	gpuNames := []string{"NVIDIA GeForce RTX 4060 Ti"}
 	// gpuMemoryTotals := []int32{8192}
 	gpuMemoryTotals := []int32{16384}
-	// gpuNames := []string{"NVIDIA GeForce RTX 4060 Ti", "NVIDIA GeForce RTX 4060 Ti", "NVIDIA GeForce RTX 4060 Ti", "NVIDIA GeForce RTX 4060 Ti"}
+	// gpuNames := []string{
+	// 	"NVIDIA GeForce RTX 4060 Ti",
+	// 	"NVIDIA GeForce RTX 4060 Ti",
+	// 	"NVIDIA GeForce RTX 4060 Ti",
+	// 	"NVIDIA GeForce RTX 4060 Ti",
+	// }
 	// gpuMemoryTotals := []int32{8192, 8192, 8192, 8192}
 	memoryTotal := 17105440768
 	// memoryTotal := 34256556032
@@ -43,7 +48,8 @@ func TestCalcPoint(t *testing.T) {
 	memoryTotal = int(math.Round(float64(memoryTotal) / (1024 * 1024 * 1024)))
 	log.Printf("physical memory total: %vGB", memoryTotal)
 
-	log.Printf("%v %v %v", gpuNames, gpuMemoryTotals, CalculatePoint(gpuNames, gpuMemoryTotals, int32(memoryTotal)))
+	calcPoint, err := CalculatePoint(gpuNames, gpuMemoryTotals, int32(memoryTotal))
+	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
 }
 
 func TestCalcPoint2(t *testing.T) {
@@ -53,11 +59,18 @@ func TestCalcPoint2(t *testing.T) {
 	memoryTotal := 17105440768
 	// memoryTotal := 34256556032
 
-	log.Printf("%v %v %v", gpuNames, gpuMemoryTotals, CalculatePointFromReport(gpuNames, gpuMemoryTotals, int64(memoryTotal)))
+	calcPoint, err := CalculatePointFromReport(gpuNames, gpuMemoryTotals, int64(memoryTotal))
+	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
 
-	gpuNames = []string{"NVIDIA GeForce RTX 4080", "NVIDIA GeForce RTX 4060 Ti", "NVIDIA GeForce RTX 4060 Ti", "NVIDIA GeForce RTX 4060 Ti"}
+	gpuNames = []string{
+		"NVIDIA GeForce RTX 4080",
+		"NVIDIA GeForce RTX 4060 Ti",
+		"NVIDIA GeForce RTX 4060 Ti",
+		"NVIDIA GeForce RTX 4060 Ti",
+	}
 	gpuMemoryTotals = []int32{16384, 8192, 8192, 8192}
 	memoryTotal = 137438953472
 
-	log.Printf("%v %v %v", gpuNames, gpuMemoryTotals, CalculatePointFromReport(gpuNames, gpuMemoryTotals, int64(memoryTotal)))
+	calcPoint, err = CalculatePointFromReport(gpuNames, gpuMemoryTotals, int64(memoryTotal))
+	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
 }

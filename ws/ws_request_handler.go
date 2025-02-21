@@ -253,7 +253,7 @@ func handleWsMachineInfoRequest(
 			"machine": wsConnInfo.MachineKey,
 		}).Error("get machine info from database failed: ", err)
 	} else if mi.CalcPoint == 0 {
-		calcPoint := calculator.CalculatePointFromReport(
+		calcPoint, err := calculator.CalculatePointFromReport(
 			miReq.GPUNames,
 			miReq.GPUMemoryTotal,
 			miReq.MemoryTotal,
@@ -261,7 +261,21 @@ func handleWsMachineInfoRequest(
 		if calcPoint == 0 {
 			log.Log.WithFields(logrus.Fields{
 				"machine": wsConnInfo.MachineKey,
-			}).Error("calculate gpu point from report failed: ", miReq)
+			}).Errorf("calculate gpu point from report %v failed %v", miReq, err)
+			writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
+				WsHeader: types.WsHeader{
+					Version:   0,
+					Timestamp: time.Now().Unix(),
+					Id:        req.Id,
+					Type:      req.Type,
+					PubKey:    []byte(""),
+					Sign:      []byte(""),
+				},
+				Code:    uint32(types.ErrCodeMachineInfo),
+				Message: fmt.Sprintf("calculate gpu point failed %v", err),
+				Body:    []byte(""),
+			})
+			return nil
 		} else {
 			log.Log.WithFields(logrus.Fields{
 				"machine": wsConnInfo.MachineKey,
@@ -275,9 +289,28 @@ func handleWsMachineInfoRequest(
 				types.MachineInfo(miReq),
 				int64(calcPoint*10000),
 			); err != nil {
+				errMsg := fmt.Sprintf(
+					"set machine info in chain contract with hash %v failed: %v",
+					hash,
+					err,
+				)
 				log.Log.WithFields(logrus.Fields{
 					"machine": wsConnInfo.MachineKey,
-				}).Error("set machine info in chain contract failed: ", err)
+				}).Error(errMsg)
+				writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
+					WsHeader: types.WsHeader{
+						Version:   0,
+						Timestamp: time.Now().Unix(),
+						Id:        req.Id,
+						Type:      req.Type,
+						PubKey:    []byte(""),
+						Sign:      []byte(""),
+					},
+					Code:    uint32(types.ErrCodeDbcChain),
+					Message: errMsg,
+					Body:    []byte(""),
+				})
+				return nil
 			} else {
 				log.Log.WithFields(logrus.Fields{
 					"machine": wsConnInfo.MachineKey,
@@ -294,6 +327,20 @@ func handleWsMachineInfoRequest(
 					log.Log.WithFields(logrus.Fields{
 						"machine": wsConnInfo.MachineKey,
 					}).Error("set machine info in database failed: ", err)
+					writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
+						WsHeader: types.WsHeader{
+							Version:   0,
+							Timestamp: time.Now().Unix(),
+							Id:        req.Id,
+							Type:      req.Type,
+							PubKey:    []byte(""),
+							Sign:      []byte(""),
+						},
+						Code:    uint32(types.ErrCodeDbcChain),
+						Message: fmt.Sprintf("set machine info in database failed %v", err),
+						Body:    []byte(""),
+					})
+					return nil
 				} else {
 					log.Log.WithFields(logrus.Fields{
 						"machine": wsConnInfo.MachineKey,
@@ -301,6 +348,10 @@ func handleWsMachineInfoRequest(
 				}
 			}
 		}
+	} else {
+		log.Log.WithFields(logrus.Fields{
+			"machine": wsConnInfo.MachineKey,
+		}).WithField("machine info", miReq).Info("get machine info success and calcpoint ", mi.CalcPoint)
 	}
 
 	ctx2, cancel2 := context.WithTimeout(ctx, 10*time.Second)
@@ -311,6 +362,9 @@ func handleWsMachineInfoRequest(
 		time.UnixMilli(req.Timestamp),
 		miReq,
 	); err != nil {
+		log.Log.WithFields(logrus.Fields{
+			"machine": wsConnInfo.MachineKey,
+		}).Error("add machine tm in database failed ", err)
 		writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
@@ -321,7 +375,7 @@ func handleWsMachineInfoRequest(
 				Sign:      []byte(""),
 			},
 			Code:    uint32(types.ErrCodeDatabase),
-			Message: "update database failed",
+			Message: "add machine tm in database failed",
 			Body:    []byte(""),
 		})
 		return nil
@@ -330,7 +384,7 @@ func handleWsMachineInfoRequest(
 	// pm.SetMetrics(nodeId, miReq)
 	log.Log.WithFields(logrus.Fields{
 		"machine": wsConnInfo.MachineKey,
-	}).WithField("machine info", miReq).Info("update machine info")
+	}).WithField("machine info", miReq).Info("add machine tm in database success")
 	writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 		WsHeader: types.WsHeader{
 			Version:   0,

@@ -1,6 +1,7 @@
 package calculator
 
 import (
+	"errors"
 	"math"
 	"strings"
 )
@@ -134,9 +135,9 @@ var nvidiaGpuInfoList = []GpuInfo{
 	},
 }
 
-func CalculatePoint(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int32) float64 {
+func CalculatePoint(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int32) (float64, error) {
 	if len(gpuNames) != len(gpuMemoryTotals) {
-		return 0.0
+		return 0.0, errors.New("gpu name and memory list are inconsistent")
 	}
 	gpuCount := len(gpuNames)
 	// cudaCores := make([]int32, 0, len(gpuNames))
@@ -163,7 +164,7 @@ func CalculatePoint(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int3
 		}
 	}
 	if minCudaCore == 0 {
-		return 0.0
+		return 0.0, errors.New("can not find the number of cuda cores")
 	}
 	// fmt.Println(minCudaCore)
 	// fmt.Println(minIndex)
@@ -171,12 +172,12 @@ func CalculatePoint(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int3
 	point := float64(memoryTotal) / 3.5
 	point += float64(gpuCount) * 25
 	point += math.Sqrt(float64(minCudaCore)) * math.Sqrt(float64(gpuMemoryTotals[minIndex])/10) * float64(gpuCount)
-	// return point
+	// return point, nil
 	ratio := math.Pow(10, 2)
-	return math.Round(point*ratio) / ratio
+	return math.Round(point*ratio) / ratio, nil
 }
 
-func CalculatePointFromReport(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int64) float64 {
+func CalculatePointFromReport(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int64) (float64, error) {
 	findFirstDigit := func(s string) int {
 		for i, char := range s {
 			if char >= '0' && char <= '9' {
