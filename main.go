@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -84,6 +85,8 @@ func main() {
 
 	pm := hmp.NewPrometheusMetrics(cfg.Prometheus.JobName)
 
+	var wg sync.WaitGroup
+
 	gin.DefaultWriter = log.Log.Out
 	// router := gin.Default()
 	router := gin.New()
@@ -117,19 +120,29 @@ func main() {
 	c0 := router.Group("/api/v0/contract")
 	{
 		c0.POST("/register", func(ctx *gin.Context) {
+			wg.Add(1)
+			defer wg.Done()
 			hmp.RegisterMachine(ctx)
 		})
 		c0.POST("/unregister", func(ctx *gin.Context) {
+			wg.Add(1)
+			defer wg.Done()
 			hmp.UnregisterMachine(ctx)
 		})
 		c0.POST("/online", func(ctx *gin.Context) {
+			wg.Add(1)
+			defer wg.Done()
 			hmp.OnlineMachine(ctx)
 		})
 		c0.POST("/offline", func(ctx *gin.Context) {
+			wg.Add(1)
+			defer wg.Done()
 			hmp.OfflineMachine(ctx)
 		})
 	}
 	router.GET("/websocket", func(c *gin.Context) {
+		wg.Add(1)
+		defer wg.Done()
 		ws.Ws(c, pm)
 	})
 
@@ -170,7 +183,7 @@ func main() {
 
 	// Restore default behavior on the interrupt signal and notify user of shutdown.
 	stop()
-	log.Log.Println("shutting down gracefully, press Ctrl+C again to force")
+	log.Log.Println("Shutting down gracefully, press Ctrl+C again to force")
 
 	// The context is used to inform the server it has 5 seconds to finish
 	// the request it is currently handling
@@ -181,6 +194,7 @@ func main() {
 	}
 
 	ws.ShutdownAllWsConns()
+	wg.Wait()
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()

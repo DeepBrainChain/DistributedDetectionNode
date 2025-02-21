@@ -54,6 +54,7 @@ func ShutdownAllWsConns() {
 		}
 		return true
 	})
+	log.Log.Println("Shutdownd all websocket connections")
 }
 
 func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
@@ -130,7 +131,7 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 		defer cancel1()
 		if hash, err := dbc.DbcChain.Report(
 			ctx1,
-			types.MachineOnline,
+			types.MachineOffline,
 			wsConnInfo.StakingType,
 			wsConnInfo.Project,
 			wsConnInfo.MachineId,
@@ -150,6 +151,7 @@ func Ws(ctx *gin.Context, pm *hmp.PrometheusMetrics) {
 		db.MDB.MachineOffline(r.Context(), wsConnInfo.MachineKey)
 		// pm.DeleteMetrics(machine)
 	}
+	wsConns.Delete(c)
 }
 
 func writeWsResponse(c *websocket.Conn, machine types.MachineKey, res *types.WsResponse) error {
