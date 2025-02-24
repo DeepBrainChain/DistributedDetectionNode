@@ -192,7 +192,13 @@ func (db *mongoDB) UnregisterMachine(ctx context.Context, machine types.MachineK
 	return nil
 }
 
-func (db *mongoDB) SetMachineInfo(ctx context.Context, machine types.MachineKey, info types.WsMachineInfoRequest, calcPoint float64) error {
+func (db *mongoDB) SetMachineInfo(
+	ctx context.Context,
+	machine types.MachineKey,
+	info types.WsMachineInfoRequest,
+	calcPoint float64,
+	longitude, latitude float32,
+) error {
 	update, err := db.machineInfoCollection.UpdateOne(
 		ctx,
 		bson.M{
@@ -208,7 +214,10 @@ func (db *mongoDB) SetMachineInfo(ctx context.Context, machine types.MachineKey,
 				"cpu_type":         info.CpuType,
 				"cpu_rate":         info.CpuRate,
 				"wallet":           info.Wallet,
+				"client_ip":        info.ClientIP,
 				"calc_point":       calcPoint,
+				"longitude":        longitude,
+				"latitude":         latitude,
 			},
 		},
 		options.Update().SetUpsert(true),

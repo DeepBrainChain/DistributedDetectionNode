@@ -244,6 +244,7 @@ func handleWsMachineInfoRequest(
 		})
 		return nil
 	}
+	miReq.ClientIP = wsConnInfo.ClientIP
 
 	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel1()
@@ -281,6 +282,11 @@ func handleWsMachineInfoRequest(
 				"machine": wsConnInfo.MachineKey,
 			}).Infof("calculate gpu point from reported machine info %v => %v", miReq, calcPoint)
 
+			longitude, latitude, err := db.GetPositionOfIP(miReq.ClientIP)
+			log.Log.WithFields(logrus.Fields{
+				"machine": wsConnInfo.MachineKey,
+			}).Infof("get location (%f, %f) from ip address %v", longitude, latitude, err)
+
 			ctx2, cancel2 := context.WithTimeout(ctx, 60*time.Second)
 			defer cancel2()
 			if hash, err := dbc.DbcChain.SetMachineInfo(
@@ -288,6 +294,8 @@ func handleWsMachineInfoRequest(
 				wsConnInfo.MachineKey,
 				types.MachineInfo(miReq),
 				int64(calcPoint*10000),
+				longitude,
+				latitude,
 			); err != nil {
 				errMsg := fmt.Sprintf(
 					"set machine info in chain contract with hash %v failed: %v",
@@ -323,6 +331,8 @@ func handleWsMachineInfoRequest(
 					wsConnInfo.MachineKey,
 					miReq,
 					calcPoint,
+					longitude,
+					latitude,
 				); err != nil {
 					log.Log.WithFields(logrus.Fields{
 						"machine": wsConnInfo.MachineKey,

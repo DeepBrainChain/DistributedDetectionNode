@@ -169,6 +169,7 @@ func (chain *dbcChain) SetMachineInfo(
 	mk mt.MachineKey,
 	mi mt.MachineInfo,
 	calcPoint int64,
+	longitude, latitude float32,
 ) (string, error) {
 	// Connect to Ethereum node
 	client, err := ethclient.Dial(chain.rpc)
@@ -196,9 +197,11 @@ func (chain *dbcChain) SetMachineInfo(
 		CpuType:      mi.CpuType,
 		GpuCount:     big.NewInt(int64(len(mi.GPUNames))),
 		MachineId:    mk.ContainerId,
-		Longitude:    "",
-		Latitude:     "",
+		Longitude:    fmt.Sprintf("%f", longitude),
+		Latitude:     fmt.Sprintf("%f", latitude),
 		MachineMem:   big.NewInt(mi.MemoryTotal),
+		Region:       "",
+		Model:        "",
 	}
 
 	// Encode the function call

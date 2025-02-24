@@ -77,6 +77,11 @@ func main() {
 	if err := db.InitMongo(ctx, cfg.MongoDB.URI, cfg.MongoDB.Database, cfg.MongoDB.ExpireTime); err != nil {
 		os.Exit(1)
 	}
+	if err := db.InitIP2LDB(cfg.IP2LDB.DatabasePath); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer db.IP2LDB.Close()
 
 	if err := dbc.InitDbcChain(ctx, cfg.Chain); err != nil {
 		fmt.Println(err)

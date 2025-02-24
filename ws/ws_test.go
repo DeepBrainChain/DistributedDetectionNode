@@ -47,9 +47,12 @@ func TestWsMachine(t *testing.T) {
 	var reqId uint64 = 0
 
 	onlineReq := &types.WsOnlineRequest{
-		MachineId:   "123456789",
-		Project:     "DecentralGPT",
-		ContainerId: "",
+		MachineKey: types.MachineKey{
+			MachineId:   "123456789",
+			Project:     "DecentralGPT",
+			ContainerId: "",
+		},
+		StakingType: types.ShortTerm,
 	}
 	reqBody, err := json.Marshal(onlineReq)
 	if err != nil {
@@ -73,6 +76,7 @@ func TestWsMachine(t *testing.T) {
 	if err := c.WriteMessage(websocket.TextMessage, reqBytes); err != nil {
 		t.Fatalf("send websocket message failed: %v", err)
 	}
+	t.Logf("send: %v", string(reqBytes))
 
 	onlineRes := <-resChan
 	if onlineRes.Type != uint32(types.WsMtOnline) || onlineRes.Code != 0 {

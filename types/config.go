@@ -11,6 +11,10 @@ type MongoDB struct {
 	ExpireTime int64  `json:"ExpireTime"`
 }
 
+type IP2LocationDB struct {
+	DatabasePath string `json:"DatabasePath"`
+}
+
 type Prometheus struct {
 	JobName        string `json:"JobName"`
 	RemoteWriteURL string `json:"RemoteWriteURL"`
@@ -35,13 +39,14 @@ type Certificate struct {
 }
 
 type Config struct {
-	Addr        string      `json:"Addr"`
-	LogLevel    string      `json:"LogLevel"`
-	LogFile     string      `json:"LogFile"`
-	MongoDB     MongoDB     `json:"MongoDB"`
-	Prometheus  Prometheus  `json:"Prometheus"`
-	Chain       ChainConfig `json:"Chain"`
-	Certificate Certificate `json:"Certificate"`
+	Addr        string        `json:"Addr"`
+	LogLevel    string        `json:"LogLevel"`
+	LogFile     string        `json:"LogFile"`
+	MongoDB     MongoDB       `json:"MongoDB"`
+	IP2LDB      IP2LocationDB `json:"IP2LDB"`
+	Prometheus  Prometheus    `json:"Prometheus"`
+	Chain       ChainConfig   `json:"Chain"`
+	Certificate Certificate   `json:"Certificate"`
 }
 
 func LoadConfig(configPath string) (*Config, error) {

@@ -11,6 +11,8 @@ type MDBMachineInfo struct {
 	MachineKey      `bson:",inline"`
 	MachineInfo     `bson:",inline"`
 	CalcPoint       float64   `json:"calc_point" bson:"calc_point"`
+	Longitude       float32   `json:"longitude" bson:"longitude"`
+	Latitude        float32   `json:"latitude" bson:"latitude"`
 	RegisterTime    time.Time `json:"register_time" bson:"register_time"`
 	LastOfflineTime time.Time `json:"last_offline_time" bson:"last_offline_time"`
 }
