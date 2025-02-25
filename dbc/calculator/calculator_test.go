@@ -56,10 +56,11 @@ func TestCalcPoint2(t *testing.T) {
 	gpuNames := []string{"NVIDIA GeForce RTX 4060 Ti"}
 	// gpuMemoryTotals := []int32{8192}
 	gpuMemoryTotals := []int32{16384}
-	memoryTotal := 17105440768
-	// memoryTotal := 34256556032
+	memoryTotal := int64(17105440768)
+	// memoryTotal := int64(34256556032)
+	memoryTotal = int64(math.Round(float64(memoryTotal) / (1024 * 1024 * 1024)))
 
-	calcPoint, err := CalculatePointFromReport(gpuNames, gpuMemoryTotals, int64(memoryTotal))
+	calcPoint, err := CalculatePointFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
 	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
 
 	gpuNames = []string{
@@ -69,8 +70,18 @@ func TestCalcPoint2(t *testing.T) {
 		"NVIDIA GeForce RTX 4060 Ti",
 	}
 	gpuMemoryTotals = []int32{16384, 8192, 8192, 8192}
-	memoryTotal = 137438953472
+	memoryTotal = int64(128) // int64(137438953472)
 
-	calcPoint, err = CalculatePointFromReport(gpuNames, gpuMemoryTotals, int64(memoryTotal))
+	calcPoint, err = CalculatePointFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
+	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
+}
+
+func TestCalcPoint3(t *testing.T) {
+	gpuNames := []string{"NVIDIA GeForce RTX 4070"}
+	// gpuMemoryTotals := []int32{8192}
+	gpuMemoryTotals := []int32{12282}
+	memoryTotal := int64(32)
+
+	calcPoint, err := CalculatePointFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
 	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
 }

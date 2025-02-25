@@ -199,10 +199,10 @@ func CalculatePointFromReport(gpuNames []string, gpuMemoryTotals []int32, memory
 
 	// 8192 MB => 8 GB
 	for i, mem := range gpuMemoryTotals {
-		gpuMemoryTotals[i] = mem / 1024
+		gpuMemoryTotals[i] = int32(math.Round(float64(mem) / 1024))
 	}
 
 	// 17105440768 Bytes => 16 GB
-	memoryTotal = int64(math.Round(float64(memoryTotal) / (1024 * 1024 * 1024)))
+	// memoryTotal = int64(math.Round(float64(memoryTotal) / (1024 * 1024 * 1024)))
 	return CalculatePoint(matchedGpuNames, gpuMemoryTotals, int32(memoryTotal))
 }
