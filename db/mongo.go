@@ -68,14 +68,8 @@ func InitMongo(ctx context.Context, uri, db string, eas int64) error {
 	return nil
 }
 
-func DisconnectMongo(ctx context.Context) error {
-	return MDB.Mongo.Disconnect(ctx)
-}
-
-func (db *mongoDB) Disconnect(ctx context.Context) {
-	if err := db.Mongo.Disconnect(ctx); err != nil {
-		panic(err)
-	}
+func (db *mongoDB) Disconnect(ctx context.Context) error {
+	return db.Mongo.Disconnect(ctx)
 }
 
 func (db *mongoDB) IsMachineOnline(ctx context.Context, machine types.MachineKey) bool {
@@ -136,7 +130,7 @@ func (db *mongoDB) MachineOffline(ctx context.Context, machine types.MachineKey)
 				"last_offline_time": time.Now(),
 			},
 		},
-		options.Update().SetUpsert(true),
+		// options.Update().SetUpsert(true),
 	)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("update last offline time failed: ", err)

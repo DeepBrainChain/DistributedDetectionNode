@@ -203,7 +203,7 @@ func main() {
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()
-	if err := db.DisconnectMongo(ctx2); err != nil {
+	if err := db.MDB.Disconnect(ctx2); err != nil {
 		log.Log.Fatal("Disconnect mongo client: ", err)
 	}
 
