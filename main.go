@@ -88,6 +88,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	wsCtx, wsCancel := context.WithCancel(context.Background())
+	ws.InitHub()
+
 	pm := hmp.NewPrometheusMetrics(cfg.Prometheus.JobName)
 
 	var wg sync.WaitGroup
@@ -148,7 +151,8 @@ func main() {
 	router.GET("/websocket", func(c *gin.Context) {
 		wg.Add(1)
 		defer wg.Done()
-		ws.Ws(c, pm)
+		// ws.Ws(c, pm)
+		ws.Ws2(c, wsCtx)
 	})
 
 	// log.Log.Fatal(router.Run(cfg.Addr))
@@ -198,8 +202,11 @@ func main() {
 		log.Log.Fatal("Server forced to shutdown: ", err)
 	}
 
-	ws.ShutdownAllWsConns()
+	// ws.ShutdownAllWsConns()
 	wg.Wait()
+
+	wsCancel()
+	ws.Hub.Wait()
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()

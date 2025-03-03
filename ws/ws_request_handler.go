@@ -207,7 +207,7 @@ func handleWsMachineInfoRequest(
 	if wsConnInfo.MachineId == "" {
 		log.Log.WithFields(logrus.Fields{
 			"machine": wsConnInfo.MachineKey,
-		}).Error("node id is empty, need online device first")
+		}).Error("machine id is empty, need send online request first")
 		writeWsResponse(c, wsConnInfo.MachineKey, &types.WsResponse{
 			WsHeader: types.WsHeader{
 				Version:   0,
@@ -218,7 +218,7 @@ func handleWsMachineInfoRequest(
 				Sign:      []byte(""),
 			},
 			Code:    uint32(types.ErrCodeMachineInfo),
-			Message: "node id is empty, need send online device first",
+			Message: "machine id is empty, need send online request first",
 			Body:    []byte(""),
 		})
 		return nil
