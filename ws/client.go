@@ -19,10 +19,38 @@ import (
 	"DistributedDetectionNode/types"
 )
 
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 30 * time.Second // 60 * time.Second
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+
+	// Maximum message size allowed from peer.
+	maxMessageSize = 512
+)
+
 var (
 	newline = []byte{'\n'}
 	space   = []byte{' '}
 )
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		if r.Method != "GET" {
+			return false
+		}
+		if r.URL.Path != "/echo" && r.URL.Path != "/websocket" {
+			return false
+		}
+		return true
+	},
+} // use default options
 
 type Client struct {
 	// The websocket connection.
@@ -103,6 +131,32 @@ func (c *Client) readPump(ctx context.Context) {
 		}
 
 		go c.handleRequest(ctx, req)
+	}
+
+	if c.MachineKey.MachineId != "" {
+		// ctx1, cancel1 := context.WithTimeout(ctx, 60*time.Second)
+		// defer cancel1()
+		// if hash, err := dbc.DbcChain.Report(
+		// 	ctx1,
+		// 	types.MachineOffline,
+		// 	c.StakingType,
+		// 	c.MachineKey.Project,
+		// 	c.MachineKey.MachineId,
+		// ); err != nil {
+		// 	log.Log.WithFields(logrus.Fields{
+		// 		"machine": c.MachineKey,
+		// 	}).Errorf(
+		// 		"machine offline in chain contract failed with hash %v because of %v",
+		// 		hash,
+		// 		err,
+		// 	)
+		// } else {
+		// 	log.Log.WithFields(logrus.Fields{
+		// 		"machine": c.MachineKey,
+		// 	}).Info("machine offline in chain contract success with hash ", hash)
+		// }
+		db.MDB.MachineOffline(ctx, c.MachineKey)
+		// pm.DeleteMetrics(machine)
 	}
 }
 
@@ -253,7 +307,7 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 
 	c.MachineKey = onlineReq.MachineKey
 	c.StakingType = onlineReq.StakingType
-	wsConns.Store(c, struct{}{})
+	// Hub.wsConns.Store(c, struct{}{})
 	return 0, "machine online success", []byte("")
 }
 
@@ -373,5 +427,5 @@ func Ws2(ctx *gin.Context, wsCtx context.Context) {
 	)
 
 	go client.writePump(wsCtx)
-	go client.readPump(r.Context())
+	go client.readPump(wsCtx)
 }
