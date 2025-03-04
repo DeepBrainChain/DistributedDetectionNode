@@ -61,11 +61,15 @@ func RegisterMachine(ctx *gin.Context) {
 	)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			if err := db.MDB.RegisterMachine(ctx1, types.MachineKey{
-				MachineId:   req.MachineId,
-				Project:     req.ProjectName,
-				ContainerId: req.ContainerId,
-			}); err != nil {
+			if err := db.MDB.RegisterMachine(
+				ctx1,
+				types.MachineKey{
+					MachineId:   req.MachineId,
+					Project:     req.ProjectName,
+					ContainerId: req.ContainerId,
+				},
+				req.StakingType,
+			); err != nil {
 				log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("machine register failed: %v when insert database", err)
 				rsp.Code = int(types.ErrCodeDatabase)
 				rsp.Message = err.Error()

@@ -89,7 +89,10 @@ func main() {
 	}
 
 	wsCtx, wsCancel := context.WithCancel(context.Background())
-	ws.InitHub()
+	if err := ws.InitHub(wsCtx); err != nil {
+		fmt.Println("Failed to init websocket hub:", err)
+		os.Exit(1)
+	}
 
 	pm := hmp.NewPrometheusMetrics(cfg.Prometheus.JobName)
 

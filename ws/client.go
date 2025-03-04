@@ -156,6 +156,14 @@ func (c *Client) readPump(ctx context.Context) {
 		// 	}).Info("machine offline in chain contract success with hash ", hash)
 		// }
 		db.MDB.MachineOffline(ctx, c.MachineKey)
+		_, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
+		if err == nil {
+			Hub.do.diconnect <- delayOfflineChanInfo{
+				machine:        c.MachineKey,
+				disconnectTime: time.Now(),
+				stakingType:    c.StakingType,
+			}
+		}
 		// pm.DeleteMetrics(machine)
 	}
 }
@@ -270,10 +278,15 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 		return uint32(types.ErrCodeParam), fmt.Sprintf("parse online request failed: %f", err), []byte("")
 	}
 
-	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
+	ctx1, cancel1 := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel1()
 	if db.MDB.IsMachineOnline(ctx1, onlineReq.MachineKey) {
 		return uint32(types.ErrCodeOnline), "machine has been online, repeated connection", []byte("")
+	}
+
+	_, err := db.MDB.GetMachineInfo(ctx1, onlineReq.MachineKey)
+	if err != nil {
+		return uint32(types.ErrCodeOnline), "machine not registered", []byte("")
 	}
 
 	{
@@ -308,6 +321,11 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 	c.MachineKey = onlineReq.MachineKey
 	c.StakingType = onlineReq.StakingType
 	// Hub.wsConns.Store(c, struct{}{})
+	Hub.do.connect <- delayOfflineChanInfo{
+		machine:        c.MachineKey,
+		disconnectTime: time.Now(),
+		stakingType:    c.StakingType,
+	}
 	return 0, "machine online success", []byte("")
 }
 

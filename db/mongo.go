@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"DistributedDetectionNode/log"
@@ -100,6 +101,26 @@ func (db *mongoDB) MachineOnline(ctx context.Context, machine types.MachineKey) 
 		return err
 	}
 	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("inserted online id ", res.InsertedID)
+
+	update, err := db.machineInfoCollection.UpdateOne(
+		ctx,
+		bson.M{
+			"machine_id":   machine.MachineId,
+			"project":      machine.Project,
+			"container_id": machine.ContainerId,
+		},
+		bson.M{
+			"$set": bson.M{
+				"last_offline_time": time.Time{},
+			},
+		},
+		// options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("reset last offline time failed: ", err)
+		return err
+	}
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("reset last offline time count ", update.ModifiedCount)
 	return nil
 }
 
@@ -118,25 +139,25 @@ func (db *mongoDB) MachineOffline(ctx context.Context, machine types.MachineKey)
 	}
 	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("delete online count ", result.DeletedCount)
 
-	update, err := db.machineInfoCollection.UpdateOne(
-		ctx,
-		bson.M{
-			"machine_id":   machine.MachineId,
-			"project":      machine.Project,
-			"container_id": machine.ContainerId,
-		},
-		bson.M{
-			"$set": bson.M{
-				"last_offline_time": time.Now(),
-			},
-		},
-		// options.Update().SetUpsert(true),
-	)
-	if err != nil {
-		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("update last offline time failed: ", err)
-		return err
-	}
-	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("update last offline time count ", update.ModifiedCount)
+	// update, err := db.machineInfoCollection.UpdateOne(
+	// 	ctx,
+	// 	bson.M{
+	// 		"machine_id":   machine.MachineId,
+	// 		"project":      machine.Project,
+	// 		"container_id": machine.ContainerId,
+	// 	},
+	// 	bson.M{
+	// 		"$set": bson.M{
+	// 			"last_offline_time": time.Now(),
+	// 		},
+	// 	},
+	// 	// options.Update().SetUpsert(true),
+	// )
+	// if err != nil {
+	// 	log.Log.WithFields(logrus.Fields{"machine": machine}).Error("update last offline time failed: ", err)
+	// 	return err
+	// }
+	// log.Log.WithFields(logrus.Fields{"machine": machine}).Info("update last offline time count ", update.ModifiedCount)
 	return nil
 }
 
@@ -155,9 +176,10 @@ func (db *mongoDB) GetMachineInfo(ctx context.Context, machine types.MachineKey)
 	return result, nil
 }
 
-func (db *mongoDB) RegisterMachine(ctx context.Context, machine types.MachineKey) error {
+func (db *mongoDB) RegisterMachine(ctx context.Context, machine types.MachineKey, stakingType types.StakingType) error {
 	res, err := db.machineInfoCollection.InsertOne(ctx, types.MDBMachineInfo{
 		MachineKey:   machine,
+		StakingType:  uint8(stakingType),
 		CalcPoint:    0,
 		RegisterTime: time.Now(),
 	})
@@ -221,6 +243,72 @@ func (db *mongoDB) SetMachineInfo(
 		return err
 	}
 	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("set machine info count ", update.ModifiedCount)
+	return nil
+}
+
+func (db *mongoDB) ReadDelayOffline(ctx context.Context, call func(types.MachineKey, time.Time, types.StakingType)) error {
+	cur, err := db.machineInfoCollection.Find(ctx, bson.D{})
+	if err != nil {
+		return fmt.Errorf("get machine info iterater cursor failed: %v", err)
+	}
+	for cur.Next(ctx) {
+		result := types.MDBMachineInfo{}
+		if err := cur.Decode(&result); err != nil {
+			return fmt.Errorf("decode machine info cursor into struct failed: %v", err)
+		} else {
+			// log.Log.Printf("cursor %v -> %v", result, cur.Current.Lookup("_id"))
+			if !result.LastOfflineTime.IsZero() {
+				// call(result.MachineKey, result.LastOfflineTime, types.StakingType(result.StakingType))
+				call(result.MachineKey, time.Now(), types.StakingType(result.StakingType))
+			}
+		}
+	}
+	if err := cur.Err(); err != nil {
+		return fmt.Errorf("machine info cursor error: %v", err)
+	}
+	cur.Close(ctx)
+	return nil
+}
+
+func (db *mongoDB) WriteDelayOffline(ctx context.Context, machine types.MachineKey, tm time.Time) error {
+	update, err := db.machineInfoCollection.UpdateOne(
+		ctx,
+		bson.M{
+			"machine_id":   machine.MachineId,
+			"project":      machine.Project,
+			"container_id": machine.ContainerId,
+		},
+		bson.M{
+			"$set": bson.M{
+				"last_offline_time": tm,
+			},
+		},
+		// options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("update last_offline_time failed: ", err)
+		return err
+	}
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("update last_offline_time count ", update.ModifiedCount)
+	return nil
+}
+
+func (db *mongoDB) WriteAllDelayOffline(ctx context.Context, tm time.Time) error {
+	update, err := db.machineInfoCollection.UpdateMany(
+		ctx,
+		bson.M{},
+		bson.M{
+			"$set": bson.M{
+				"last_offline_time": tm,
+			},
+		},
+		// options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		log.Log.Error("update all last_offline_time failed: ", err)
+		return err
+	}
+	log.Log.Info("update all last_offline_time count ", update.ModifiedCount)
 	return nil
 }
 
