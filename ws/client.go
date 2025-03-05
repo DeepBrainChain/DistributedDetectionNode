@@ -452,5 +452,5 @@ func Ws2(ctx *gin.Context, wsCtx context.Context) {
 	)
 
 	go client.writePump(wsCtx)
-	go client.readPump(wsCtx)
+	go client.readPump(context.Background())
 }

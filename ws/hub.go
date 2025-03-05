@@ -79,7 +79,7 @@ func (h *hub) Wait() {
 	log.Log.Println("All websocket routine exiting")
 	h.do.done <- true
 	h.do.wg.Wait()
-	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	// for machine, cdi := range h.do.elements {
 	// 	db.MDB.WriteDelayOffline(ctx, machine, cdi.disconnectTime)
@@ -124,7 +124,7 @@ func (do *delayOffline) HandleDelayOffline() {
 func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 	do.wg.Add(1)
 	defer do.wg.Done()
-	ctx1, cancel1 := context.WithTimeout(context.TODO(), 60*time.Second)
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel1()
 	if hash, err := dbc.DbcChain.Report(
 		ctx1,
