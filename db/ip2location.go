@@ -17,10 +17,11 @@ func InitIP2LDB(dbpath string) error {
 	return nil
 }
 
-func GetPositionOfIP(ip string) (float32, float32, error) {
-	results, err := IP2LDB.Get_all(ip)
-	if err != nil {
-		return 0, 0, err
-	}
-	return results.Longitude, results.Latitude, nil
+func GetPositionOfIP(ip string) (ip2location.IP2Locationrecord, error) {
+	// results, err := IP2LDB.Get_all(ip)
+	// if err != nil {
+	// 	return 0, 0, err
+	// }
+	// return results.Longitude, results.Latitude, nil
+	return IP2LDB.Get_all(ip)
 }

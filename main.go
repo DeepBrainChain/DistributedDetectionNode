@@ -127,6 +127,7 @@ func main() {
 	router.Use(gin.LoggerWithFormatter(defaultLogFormatter), gin.Recovery(), cors.New(corsConfig))
 	router.GET("/metrics/prometheus", pm.Metrics)
 	// router.GET("/echo", ws.Echo)
+	router.GET("/api/v0/location", hmp.Location)
 	// for dbc contract
 	c0 := router.Group("/api/v0/contract")
 	{

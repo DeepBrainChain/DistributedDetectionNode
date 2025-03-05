@@ -338,6 +338,7 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 	if err := json.Unmarshal(req.Body, &miReq); err != nil {
 		return uint32(types.ErrCodeParam), fmt.Sprintf("parse machine info request failed: %v", err), []byte("")
 	}
+	miReq.ClientIP = c.ClientIP
 
 	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel1()
@@ -360,10 +361,16 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 				"machine": c.MachineKey,
 			}).Infof("calculate gpu point from reported machine info %v => %v", miReq, calcPoint)
 
-			longitude, latitude, err := db.GetPositionOfIP(miReq.ClientIP)
-			log.Log.WithFields(logrus.Fields{
-				"machine": c.MachineKey,
-			}).Infof("get location (%f, %f) from ip address %v", longitude, latitude, err)
+			loc, err := db.GetPositionOfIP(c.ClientIP)
+			if err != nil {
+				log.Log.WithFields(logrus.Fields{
+					"machine": c.MachineKey,
+				}).Errorf("get location err %v from ip address %v", err, c.ClientIP)
+			} else {
+				log.Log.WithFields(logrus.Fields{
+					"machine": c.MachineKey,
+				}).Infof("get location (%f, %f) from ip address %v", loc.Longitude, loc.Latitude, c.ClientIP)
+			}
 
 			ctx2, cancel2 := context.WithTimeout(ctx, 60*time.Second)
 			defer cancel2()
@@ -372,8 +379,8 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 				c.MachineKey,
 				types.MachineInfo(miReq),
 				int64(calcPoint*10000),
-				longitude,
-				latitude,
+				loc.Longitude,
+				loc.Latitude,
 			); err != nil {
 				errMsg := fmt.Sprintf(
 					"set machine info in chain contract with hash %v failed: %v",
@@ -393,8 +400,8 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 					c.MachineKey,
 					miReq,
 					calcPoint,
-					longitude,
-					latitude,
+					loc.Longitude,
+					loc.Latitude,
 				); err != nil {
 					return uint32(types.ErrCodeDbcChain), fmt.Sprintf("set machine info in database failed %v", err), []byte("")
 				} else {
