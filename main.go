@@ -89,7 +89,7 @@ func main() {
 	}
 
 	wsCtx, wsCancel := context.WithCancel(context.Background())
-	if err := ws.InitHub(wsCtx); err != nil {
+	if err := ws.InitHub(wsCtx, cfg.NotifyThirdParty.OfflineNotify); err != nil {
 		fmt.Println("Failed to init websocket hub:", err)
 		os.Exit(1)
 	}

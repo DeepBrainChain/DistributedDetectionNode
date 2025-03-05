@@ -38,15 +38,20 @@ type Certificate struct {
 	Key  string `json:"key"`
 }
 
+type NotifyThirdParty struct {
+	OfflineNotify string `json:"OfflineNotify"`
+}
+
 type Config struct {
-	Addr        string        `json:"Addr"`
-	LogLevel    string        `json:"LogLevel"`
-	LogFile     string        `json:"LogFile"`
-	MongoDB     MongoDB       `json:"MongoDB"`
-	IP2LDB      IP2LocationDB `json:"IP2LDB"`
-	Prometheus  Prometheus    `json:"Prometheus"`
-	Chain       ChainConfig   `json:"Chain"`
-	Certificate Certificate   `json:"Certificate"`
+	Addr             string           `json:"Addr"`
+	LogLevel         string           `json:"LogLevel"`
+	LogFile          string           `json:"LogFile"`
+	MongoDB          MongoDB          `json:"MongoDB"`
+	IP2LDB           IP2LocationDB    `json:"IP2LDB"`
+	Prometheus       Prometheus       `json:"Prometheus"`
+	Chain            ChainConfig      `json:"Chain"`
+	Certificate      Certificate      `json:"Certificate"`
+	NotifyThirdParty NotifyThirdParty `json:"NotifyThirdParty"`
 }
 
 func LoadConfig(configPath string) (*Config, error) {

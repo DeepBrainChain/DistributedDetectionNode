@@ -1,7 +1,11 @@
 package ws
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -38,6 +42,7 @@ type delayOffline struct {
 	elements  map[types.MachineKey]cachedOfflineItem
 	wg        sync.WaitGroup
 	done      chan bool
+	notifyApi string
 }
 
 // func NewHub() *hub {
@@ -47,7 +52,7 @@ type delayOffline struct {
 // 	}
 // }
 
-func InitHub(ctx context.Context) error {
+func InitHub(ctx context.Context, napi string) error {
 	Hub = &hub{
 		wg:      sync.WaitGroup{},
 		wsConns: sync.Map{},
@@ -57,6 +62,7 @@ func InitHub(ctx context.Context) error {
 			elements:  make(map[types.MachineKey]cachedOfflineItem),
 			wg:        sync.WaitGroup{},
 			done:      make(chan bool),
+			notifyApi: napi,
 		},
 	}
 	if err := db.MDB.ReadDelayOffline(
@@ -144,6 +150,58 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 		log.Log.WithFields(logrus.Fields{
 			"machine": info.machine,
 		}).Info("machine offline in chain contract success with hash ", hash)
+
+		onr := types.OfflineNotifyRequest{
+			MachineId: info.machine.MachineId,
+		}
+		jsonData, err := json.Marshal(onr)
+		if err != nil {
+			log.Log.WithFields(logrus.Fields{
+				"machine": info.machine,
+			}).Errorf("failed to send offline notify request: %v", err)
+		}
+
+		const maxRetries = 3
+		retries := 0
+		for retries < maxRetries {
+			resp, err := http.Post(
+				do.notifyApi,
+				"application/json",
+				bytes.NewBuffer(jsonData),
+			)
+			if err != nil || resp.StatusCode != 200 {
+				log.Log.WithFields(logrus.Fields{
+					"machine": info.machine,
+				}).Errorf("failed to send offline notify request %v times: %v", retries, err)
+			} else {
+				defer resp.Body.Close()
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					log.Log.WithFields(logrus.Fields{
+						"machine": info.machine,
+					}).Errorf("failed to send offline notify request %v times: %v", retries, err)
+				} else {
+					result := types.OfflineNotifyResponse{}
+					if err := json.Unmarshal(body, &result); err != nil {
+						log.Log.WithFields(logrus.Fields{
+							"machine": info.machine,
+						}).Errorf("failed to send offline notify request %v times: %v", retries, err)
+					} else {
+						if result.Code == 1 {
+							log.Log.WithFields(logrus.Fields{
+								"machine": info.machine,
+							}).Infof("send offline notify request success %v %v", result.Success, result.Msg)
+							break
+						} else {
+							log.Log.WithFields(logrus.Fields{
+								"machine": info.machine,
+							}).Errorf("failed to send offline notify request %v times: %v", retries, err)
+						}
+					}
+				}
+			}
+			retries++
+		}
 	}
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel2()
