@@ -134,28 +134,7 @@ func (c *Client) readPump(ctx context.Context) {
 	}
 
 	if c.MachineKey.MachineId != "" {
-		// ctx1, cancel1 := context.WithTimeout(ctx, 60*time.Second)
-		// defer cancel1()
-		// if hash, err := dbc.DbcChain.Report(
-		// 	ctx1,
-		// 	types.MachineOffline,
-		// 	c.StakingType,
-		// 	c.MachineKey.Project,
-		// 	c.MachineKey.MachineId,
-		// ); err != nil {
-		// 	log.Log.WithFields(logrus.Fields{
-		// 		"machine": c.MachineKey,
-		// 	}).Errorf(
-		// 		"machine offline in chain contract failed with hash %v because of %v",
-		// 		hash,
-		// 		err,
-		// 	)
-		// } else {
-		// 	log.Log.WithFields(logrus.Fields{
-		// 		"machine": c.MachineKey,
-		// 	}).Info("machine offline in chain contract success with hash ", hash)
-		// }
-		db.MDB.MachineOffline(ctx, c.MachineKey)
+		db.MDB.MachineDisconnected(ctx, c.MachineKey)
 		_, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
 		if err == nil {
 			Hub.do.diconnect <- delayOfflineChanInfo{
@@ -280,7 +259,7 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 
 	ctx1, cancel1 := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel1()
-	if db.MDB.IsMachineOnline(ctx1, onlineReq.MachineKey) {
+	if db.MDB.IsMachineConnected(ctx1, onlineReq.MachineKey) {
 		return uint32(types.ErrCodeOnline), "machine has been online, repeated connection", []byte("")
 	}
 
@@ -314,7 +293,7 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 
 	ctx2, cancel2 := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel2()
-	if err := db.MDB.MachineOnline(ctx2, onlineReq.MachineKey); err != nil {
+	if err := db.MDB.MachineConnected(ctx2, onlineReq.MachineKey); err != nil {
 		return uint32(types.ErrCodeDatabase), fmt.Sprintf("insert online database failed: %v", err), []byte("")
 	}
 

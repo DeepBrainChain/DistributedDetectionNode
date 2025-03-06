@@ -18,10 +18,10 @@ import (
 var MDB *mongoDB = nil
 
 type mongoDB struct {
-	Mongo                   *mongo.Client
-	machineOnlineCollection *mongo.Collection
-	machineInfoCollection   *mongo.Collection
-	machineTMCollection     *mongo.Collection
+	Mongo                 *mongo.Client
+	machineConnCollection *mongo.Collection
+	machineInfoCollection *mongo.Collection
+	machineTMCollection   *mongo.Collection
 }
 
 func InitMongo(ctx context.Context, uri, db string, eas int64) error {
@@ -63,7 +63,7 @@ func InitMongo(ctx context.Context, uri, db string, eas int64) error {
 		log.Log.Info("Create collection with time series success")
 	}
 
-	MDB.machineOnlineCollection = client.Database(db).Collection("machine_online")
+	MDB.machineConnCollection = client.Database(db).Collection("machine_connection")
 	MDB.machineInfoCollection = client.Database(db).Collection("machine_info")
 	MDB.machineTMCollection = client.Database(db).Collection("machine_tm")
 	return nil
@@ -73,9 +73,9 @@ func (db *mongoDB) Disconnect(ctx context.Context) error {
 	return db.Mongo.Disconnect(ctx)
 }
 
-func (db *mongoDB) IsMachineOnline(ctx context.Context, machine types.MachineKey) bool {
+func (db *mongoDB) IsMachineConnected(ctx context.Context, machine types.MachineKey) bool {
 	result := types.MDBMachineOnline{}
-	if err := db.machineOnlineCollection.FindOne(
+	if err := db.machineConnCollection.FindOne(
 		ctx,
 		bson.M{
 			"machine_id":   machine.MachineId,
@@ -91,8 +91,8 @@ func (db *mongoDB) IsMachineOnline(ctx context.Context, machine types.MachineKey
 	return true
 }
 
-func (db *mongoDB) MachineOnline(ctx context.Context, machine types.MachineKey) error {
-	res, err := db.machineOnlineCollection.InsertOne(ctx, types.MDBMachineOnline{
+func (db *mongoDB) MachineConnected(ctx context.Context, machine types.MachineKey) error {
+	res, err := db.machineConnCollection.InsertOne(ctx, types.MDBMachineOnline{
 		MachineKey: machine,
 		AddTime:    time.Now(),
 	})
@@ -111,21 +111,21 @@ func (db *mongoDB) MachineOnline(ctx context.Context, machine types.MachineKey) 
 		},
 		bson.M{
 			"$set": bson.M{
-				"last_offline_time": time.Time{},
+				"last_disconnect_time": time.Time{},
 			},
 		},
 		// options.Update().SetUpsert(true),
 	)
 	if err != nil {
-		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("reset last offline time failed: ", err)
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("reset last_disconnect_time failed: ", err)
 		return err
 	}
-	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("reset last offline time count ", update.ModifiedCount)
+	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("reset last_disconnect_time count ", update.ModifiedCount)
 	return nil
 }
 
-func (db *mongoDB) MachineOffline(ctx context.Context, machine types.MachineKey) error {
-	result, err := db.machineOnlineCollection.DeleteOne(
+func (db *mongoDB) MachineDisconnected(ctx context.Context, machine types.MachineKey) error {
+	result, err := db.machineConnCollection.DeleteOne(
 		ctx,
 		bson.M{
 			"machine_id":   machine.MachineId,
@@ -148,16 +148,16 @@ func (db *mongoDB) MachineOffline(ctx context.Context, machine types.MachineKey)
 	// 	},
 	// 	bson.M{
 	// 		"$set": bson.M{
-	// 			"last_offline_time": time.Now(),
+	// 			"last_disconnect_time": time.Now(),
 	// 		},
 	// 	},
 	// 	// options.Update().SetUpsert(true),
 	// )
 	// if err != nil {
-	// 	log.Log.WithFields(logrus.Fields{"machine": machine}).Error("update last offline time failed: ", err)
+	// 	log.Log.WithFields(logrus.Fields{"machine": machine}).Error("update last_disconnect_time failed: ", err)
 	// 	return err
 	// }
-	// log.Log.WithFields(logrus.Fields{"machine": machine}).Info("update last offline time count ", update.ModifiedCount)
+	// log.Log.WithFields(logrus.Fields{"machine": machine}).Info("update last_disconnect_time count ", update.ModifiedCount)
 	return nil
 }
 
@@ -257,8 +257,8 @@ func (db *mongoDB) ReadDelayOffline(ctx context.Context, call func(types.Machine
 			return fmt.Errorf("decode machine info cursor into struct failed: %v", err)
 		} else {
 			// log.Log.Printf("cursor %v -> %v", result, cur.Current.Lookup("_id"))
-			if !result.LastOfflineTime.IsZero() {
-				// call(result.MachineKey, result.LastOfflineTime, types.StakingType(result.StakingType))
+			if !result.LastDisconnectTime.IsZero() {
+				// call(result.MachineKey, time.Now(), types.StakingType(result.StakingType))
 				call(result.MachineKey, time.Now(), types.StakingType(result.StakingType))
 			}
 		}
@@ -270,7 +270,26 @@ func (db *mongoDB) ReadDelayOffline(ctx context.Context, call func(types.Machine
 	return nil
 }
 
-func (db *mongoDB) WriteDelayOffline(ctx context.Context, machine types.MachineKey, tm time.Time) error {
+func (db *mongoDB) WriteAllDelayOffline(ctx context.Context, tm time.Time) error {
+	update, err := db.machineInfoCollection.UpdateMany(
+		ctx,
+		bson.M{},
+		bson.M{
+			"$set": bson.M{
+				"last_disconnect_time": tm,
+			},
+		},
+		// options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		log.Log.Error("update all last_disconnect_time failed: ", err)
+		return err
+	}
+	log.Log.Info("update all last_disconnect_time count ", update.ModifiedCount)
+	return nil
+}
+
+func (db *mongoDB) OfflineMachine(ctx context.Context, machine types.MachineKey, tm time.Time) error {
 	update, err := db.machineInfoCollection.UpdateOne(
 		ctx,
 		bson.M{
@@ -290,25 +309,6 @@ func (db *mongoDB) WriteDelayOffline(ctx context.Context, machine types.MachineK
 		return err
 	}
 	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("update last_offline_time count ", update.ModifiedCount)
-	return nil
-}
-
-func (db *mongoDB) WriteAllDelayOffline(ctx context.Context, tm time.Time) error {
-	update, err := db.machineInfoCollection.UpdateMany(
-		ctx,
-		bson.M{},
-		bson.M{
-			"$set": bson.M{
-				"last_offline_time": tm,
-			},
-		},
-		// options.Update().SetUpsert(true),
-	)
-	if err != nil {
-		log.Log.Error("update all last_offline_time failed: ", err)
-		return err
-	}
-	log.Log.Info("update all last_offline_time count ", update.ModifiedCount)
 	return nil
 }
 

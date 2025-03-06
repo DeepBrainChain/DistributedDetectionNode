@@ -8,14 +8,15 @@ type MDBMachineOnline struct {
 }
 
 type MDBMachineInfo struct {
-	MachineKey      `bson:",inline"`
-	MachineInfo     `bson:",inline"`
-	StakingType     uint8     `json:"staking_type"`
-	CalcPoint       float64   `json:"calc_point" bson:"calc_point"`
-	Longitude       float32   `json:"longitude" bson:"longitude"`
-	Latitude        float32   `json:"latitude" bson:"latitude"`
-	RegisterTime    time.Time `json:"register_time" bson:"register_time"`
-	LastOfflineTime time.Time `json:"last_offline_time" bson:"last_offline_time"`
+	MachineKey         `bson:",inline"`
+	MachineInfo        `bson:",inline"`
+	StakingType        uint8     `json:"staking_type"`
+	CalcPoint          float64   `json:"calc_point" bson:"calc_point"`
+	Longitude          float32   `json:"longitude" bson:"longitude"`
+	Latitude           float32   `json:"latitude" bson:"latitude"`
+	RegisterTime       time.Time `json:"register_time" bson:"register_time"`
+	LastOfflineTime    time.Time `json:"last_offline_time" bson:"last_offline_time"`
+	LastDisconnectTime time.Time `json:"last_disconnect_time" bson:"last_disconnect_time"`
 	// LastRegisterTime time.Time `json:"last_register_time" bson:"last_register_time"`
 }
 

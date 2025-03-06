@@ -87,9 +87,6 @@ func (h *hub) Wait() {
 	h.do.wg.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	// for machine, cdi := range h.do.elements {
-	// 	db.MDB.WriteDelayOffline(ctx, machine, cdi.disconnectTime)
-	// }
 	db.MDB.WriteAllDelayOffline(ctx, time.Now())
 }
 
@@ -205,5 +202,5 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 	}
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel2()
-	db.MDB.WriteDelayOffline(ctx2, info.machine, time.Now())
+	db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
 }
