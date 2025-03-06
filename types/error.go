@@ -11,6 +11,7 @@ const (
 	ErrCodeMachineInfo                      // 更新机器信息错误
 	ErrCodeDbcChain                         // DBC 链错误
 	ErrCodeIp2Location                      // ip2location 错误
+	ErrCodeUUID
 )
 
 var errMsg = map[ErrorCode]string{
@@ -22,6 +23,7 @@ var errMsg = map[ErrorCode]string{
 	ErrCodeMachineInfo: "invalid machine info",
 	ErrCodeDbcChain:    "dbc chain error",
 	ErrCodeIp2Location: "ip2location error",
+	ErrCodeUUID:        "UUID error",
 }
 
 func (e ErrorCode) String() string {

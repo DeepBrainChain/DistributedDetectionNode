@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 
@@ -64,6 +65,7 @@ type Client struct {
 	MachineKey  types.MachineKey
 	StakingType types.StakingType
 	ClientIP    string
+	ClientID    string
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -72,12 +74,21 @@ type Client struct {
 // ensures that there is at most one reader on a connection by executing all
 // reads from this goroutine.
 func (c *Client) readPump(ctx context.Context) {
+	log.Log.WithFields(logrus.Fields{
+		"uuid":    c.ClientID,
+		"machine": c.MachineKey,
+	}).Info("read goroutine started")
 	c.hub.wg.Add(1)
 	defer func() {
 		c.hub.wg.Done()
 		c.hub.wsConns.Delete(c)
 		close(c.send)
 		c.conn.Close()
+
+		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
+			"machine": c.MachineKey,
+		}).Info("read goroutine stopped")
 	}()
 	// c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -85,6 +96,7 @@ func (c *Client) readPump(ctx context.Context) {
 	c.conn.SetPingHandler(func(appData string) error {
 		c.conn.SetReadDeadline(time.Now().Add(pongWait))
 		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
 			"machine": c.MachineKey,
 		}).Debug("ping handler")
 		err := c.conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(writeWait))
@@ -100,12 +112,14 @@ func (c *Client) readPump(ctx context.Context) {
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Log.WithFields(logrus.Fields{
+					"uuid":    c.ClientID,
 					"machine": c.MachineKey,
 				}).Error("read error: ", err)
 			}
 			break
 		}
 		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
 			"machine": c.MachineKey,
 		}).Infof("recv message: %v %s", mt, message)
 
@@ -114,6 +128,7 @@ func (c *Client) readPump(ctx context.Context) {
 		req := &types.WsRequest{}
 		if err := json.Unmarshal(message, req); err != nil {
 			log.Log.WithFields(logrus.Fields{
+				"uuid":    c.ClientID,
 				"machine": c.MachineKey,
 			}).Error("parse request failed: ", err)
 			c.WriteResponse(&types.WsResponse{
@@ -155,10 +170,19 @@ func (c *Client) readPump(ctx context.Context) {
 // application ensures that there is at most one writer to a connection by
 // executing all writes from this goroutine.
 func (c *Client) writePump(ctx context.Context) {
+	log.Log.WithFields(logrus.Fields{
+		"uuid":    c.ClientID,
+		"machine": c.MachineKey,
+	}).Info("write goroutine started")
 	c.hub.wg.Add(1)
 	defer func() {
 		c.hub.wg.Done()
 		c.conn.Close()
+
+		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
+			"machine": c.MachineKey,
+		}).Info("write goroutine stopped")
 	}()
 	for {
 		select {
@@ -197,6 +221,7 @@ func (c *Client) WriteResponse(res *types.WsResponse) error {
 	resBytes, err := json.Marshal(res)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
 			"machine": c.MachineKey,
 		}).Errorf("marshal reponse with id %v failed: %v", res.Id, err)
 		return err
@@ -239,10 +264,12 @@ func (c *Client) handleRequest(ctx context.Context, req *types.WsRequest) {
 	}
 	if code == 0 {
 		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
 			"machine": c.MachineKey,
 		}).Info(message)
 	} else {
 		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
 			"machine": c.MachineKey,
 		}).Error(message)
 	}
@@ -292,6 +319,7 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 			return uint32(types.ErrCodeDbcChain), errMsg, []byte("")
 		} else {
 			log.Log.WithFields(logrus.Fields{
+				"uuid":    c.ClientID,
 				"machine": onlineReq,
 			}).Info("machine online in chain contract success with hash ", hash)
 		}
@@ -338,21 +366,25 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 		)
 		if calcPoint == 0 {
 			log.Log.WithFields(logrus.Fields{
+				"uuid":    c.ClientID,
 				"machine": c.MachineKey,
 			}).Errorf("calculate gpu point from report %v failed %v", miReq, err)
 			return uint32(types.ErrCodeMachineInfo), fmt.Sprintf("calculate gpu point failed %v", err), []byte("")
 		} else {
 			log.Log.WithFields(logrus.Fields{
+				"uuid":    c.ClientID,
 				"machine": c.MachineKey,
 			}).Infof("calculate gpu point from reported machine info %v => %v", miReq, calcPoint)
 
 			loc, err := db.GetPositionOfIP(c.ClientIP)
 			if err != nil {
 				log.Log.WithFields(logrus.Fields{
+					"uuid":    c.ClientID,
 					"machine": c.MachineKey,
 				}).Errorf("get location err %v from ip address %v", err, c.ClientIP)
 			} else {
 				log.Log.WithFields(logrus.Fields{
+					"uuid":    c.ClientID,
 					"machine": c.MachineKey,
 				}).Infof("get location (%f, %f) from ip address %v", loc.Longitude, loc.Latitude, c.ClientIP)
 			}
@@ -375,6 +407,7 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 				return uint32(types.ErrCodeDbcChain), errMsg, []byte("")
 			} else {
 				log.Log.WithFields(logrus.Fields{
+					"uuid":    c.ClientID,
 					"machine": c.MachineKey,
 				}).Info("set machine info in chain contract success with hash ", hash)
 
@@ -391,6 +424,7 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 					return uint32(types.ErrCodeDbcChain), fmt.Sprintf("set machine info in database failed %v", err), []byte("")
 				} else {
 					log.Log.WithFields(logrus.Fields{
+						"uuid":    c.ClientID,
 						"machine": c.MachineKey,
 					}).Info("set machine info in database success")
 				}
@@ -398,6 +432,7 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 		}
 	} else {
 		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
 			"machine": c.MachineKey,
 		}).WithField("machine info", miReq).Info("get machine info success and calcpoint ", mi.CalcPoint)
 	}
@@ -426,11 +461,25 @@ func Ws2(hub *Hub, ctx *gin.Context, wsCtx context.Context) {
 		return
 	}
 
+	randomUUID, err := uuid.NewRandom()
+	if err != nil {
+		ctx.JSON(
+			http.StatusInternalServerError,
+			types.BaseHttpResponse{
+				Code:    int(types.ErrCodeUUID),
+				Message: types.ErrCodeUUID.String(),
+			},
+		)
+		log.Log.Error("generate uuid for websocket connection failed: ", err)
+		return
+	}
+
 	client := &Client{
 		hub:      hub,
 		conn:     c,
 		send:     make(chan []byte, 512),
 		ClientIP: ctx.ClientIP(),
+		ClientID: randomUUID.String(),
 	}
 	hub.wsConns.Store(
 		client,
