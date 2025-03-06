@@ -90,7 +90,7 @@ func RegisterMachine(ctx *gin.Context) {
 	ctx.JSON(ohttp.StatusOK, rsp)
 }
 
-func UnregisterMachine(ctx *gin.Context) {
+func UnregisterMachine(ctx *gin.Context, unregisterNotify func(machine types.MachineKey, stakingType types.StakingType)) {
 	rsp := types.BaseHttpResponse{
 		Code:    0,
 		Message: "ok",
@@ -122,6 +122,15 @@ func UnregisterMachine(ctx *gin.Context) {
 		return
 	}
 	log.Log.WithFields(logrus.Fields{"machine": req}).Info("machine unregister success with hash ", hash)
+
+	unregisterNotify(
+		types.MachineKey{
+			MachineId:   req.MachineId,
+			Project:     req.ProjectName,
+			ContainerId: req.ContainerId,
+		},
+		req.StakingType,
+	)
 
 	if err := db.MDB.UnregisterMachine(ctx1, types.MachineKey{
 		MachineId:   req.MachineId,

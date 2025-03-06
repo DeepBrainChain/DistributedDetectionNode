@@ -53,6 +53,8 @@ var upgrader = websocket.Upgrader{
 } // use default options
 
 type Client struct {
+	hub *Hub
+
 	// The websocket connection.
 	conn *websocket.Conn
 
@@ -70,10 +72,10 @@ type Client struct {
 // ensures that there is at most one reader on a connection by executing all
 // reads from this goroutine.
 func (c *Client) readPump(ctx context.Context) {
-	Hub.wg.Add(1)
+	c.hub.wg.Add(1)
 	defer func() {
-		Hub.wg.Done()
-		Hub.wsConns.Delete(c)
+		c.hub.wg.Done()
+		c.hub.wsConns.Delete(c)
 		close(c.send)
 		c.conn.Close()
 	}()
@@ -137,7 +139,7 @@ func (c *Client) readPump(ctx context.Context) {
 		db.MDB.MachineDisconnected(ctx, c.MachineKey)
 		_, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
 		if err == nil {
-			Hub.do.diconnect <- delayOfflineChanInfo{
+			c.hub.do.diconnect <- delayOfflineChanInfo{
 				machine:        c.MachineKey,
 				disconnectTime: time.Now(),
 				stakingType:    c.StakingType,
@@ -153,9 +155,9 @@ func (c *Client) readPump(ctx context.Context) {
 // application ensures that there is at most one writer to a connection by
 // executing all writes from this goroutine.
 func (c *Client) writePump(ctx context.Context) {
-	Hub.wg.Add(1)
+	c.hub.wg.Add(1)
 	defer func() {
-		Hub.wg.Done()
+		c.hub.wg.Done()
 		c.conn.Close()
 	}()
 	for {
@@ -257,6 +259,10 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 		return uint32(types.ErrCodeParam), fmt.Sprintf("parse online request failed: %f", err), []byte("")
 	}
 
+	if onlineReq.MachineId == "" {
+		return uint32(types.ErrCodeParam), "machine id is empty", []byte("")
+	}
+
 	ctx1, cancel1 := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel1()
 	if db.MDB.IsMachineConnected(ctx1, onlineReq.MachineKey) {
@@ -299,8 +305,8 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 
 	c.MachineKey = onlineReq.MachineKey
 	c.StakingType = onlineReq.StakingType
-	// Hub.wsConns.Store(c, struct{}{})
-	Hub.do.connect <- delayOfflineChanInfo{
+	// c.hub.wsConns.Store(c, struct{}{})
+	c.hub.do.connect <- delayOfflineChanInfo{
 		machine:        c.MachineKey,
 		disconnectTime: time.Now(),
 		stakingType:    c.StakingType,
@@ -411,7 +417,7 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 	return 0, "add machine tm success", []byte("")
 }
 
-func Ws2(ctx *gin.Context, wsCtx context.Context) {
+func Ws2(hub *Hub, ctx *gin.Context, wsCtx context.Context) {
 	w, r := ctx.Writer, ctx.Request
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -421,11 +427,12 @@ func Ws2(ctx *gin.Context, wsCtx context.Context) {
 	}
 
 	client := &Client{
+		hub:      hub,
 		conn:     c,
 		send:     make(chan []byte, 512),
 		ClientIP: ctx.ClientIP(),
 	}
-	Hub.wsConns.Store(
+	hub.wsConns.Store(
 		client,
 		struct{}{},
 	)

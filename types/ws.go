@@ -26,6 +26,7 @@ type WsMessageType uint32
 const (
 	WsMtOnline WsMessageType = iota + 1
 	WsMtMachineInfo
+	WsMtNotify
 )
 
 type WsConnInfo struct {
@@ -44,3 +45,11 @@ type WsOnlineRequest struct {
 // }
 
 type WsMachineInfoRequest MachineInfo
+
+type WsNotifyMessage struct {
+	Unregister WsUnregisterNotify `json:"unregister,omitempty"`
+}
+
+type WsUnregisterNotify struct {
+	Message string `json:"message"`
+}

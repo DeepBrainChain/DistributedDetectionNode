@@ -89,7 +89,8 @@ func main() {
 	}
 
 	wsCtx, wsCancel := context.WithCancel(context.Background())
-	if err := ws.InitHub(wsCtx, cfg.NotifyThirdParty.OfflineNotify); err != nil {
+	wsHub, err := ws.InitHub(wsCtx, cfg.NotifyThirdParty.OfflineNotify)
+	if err != nil {
 		fmt.Println("Failed to init websocket hub:", err)
 		os.Exit(1)
 	}
@@ -139,7 +140,7 @@ func main() {
 		c0.POST("/unregister", func(ctx *gin.Context) {
 			wg.Add(1)
 			defer wg.Done()
-			hmp.UnregisterMachine(ctx)
+			hmp.UnregisterMachine(ctx, wsHub.SendUnregisterNotify)
 		})
 		c0.POST("/online", func(ctx *gin.Context) {
 			wg.Add(1)
@@ -156,7 +157,7 @@ func main() {
 		wg.Add(1)
 		defer wg.Done()
 		// ws.Ws(c, pm)
-		ws.Ws2(c, wsCtx)
+		ws.Ws2(wsHub, c, wsCtx)
 	})
 
 	// log.Log.Fatal(router.Run(cfg.Addr))
@@ -210,7 +211,7 @@ func main() {
 	wg.Wait()
 
 	wsCancel()
-	ws.Hub.Wait()
+	wsHub.Wait()
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()

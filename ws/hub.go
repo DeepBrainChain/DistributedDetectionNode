@@ -17,9 +17,7 @@ import (
 	"DistributedDetectionNode/types"
 )
 
-var Hub *hub = nil
-
-type hub struct {
+type Hub struct {
 	wg      sync.WaitGroup
 	wsConns sync.Map
 	do      *delayOffline
@@ -45,15 +43,8 @@ type delayOffline struct {
 	notifyApi string
 }
 
-// func NewHub() *hub {
-// 	return &hub{
-// 		wg:      sync.WaitGroup{},
-// 		wsConns: sync.Map{},
-// 	}
-// }
-
-func InitHub(ctx context.Context, napi string) error {
-	Hub = &hub{
+func InitHub(ctx context.Context, napi string) (*Hub, error) {
+	hub := &Hub{
 		wg:      sync.WaitGroup{},
 		wsConns: sync.Map{},
 		do: &delayOffline{
@@ -68,19 +59,19 @@ func InitHub(ctx context.Context, napi string) error {
 	if err := db.MDB.ReadDelayOffline(
 		ctx,
 		func(mk types.MachineKey, t time.Time, st types.StakingType) {
-			Hub.do.elements[mk] = cachedOfflineItem{
+			hub.do.elements[mk] = cachedOfflineItem{
 				disconnectTime: t,
 				stakingType:    st,
 			}
 		},
 	); err != nil {
-		return err
+		return nil, err
 	}
-	go Hub.do.HandleDelayOffline()
-	return nil
+	go hub.do.HandleDelayOffline()
+	return hub, nil
 }
 
-func (h *hub) Wait() {
+func (h *Hub) Wait() {
 	h.wg.Wait()
 	log.Log.Println("All websocket routine exiting")
 	h.do.done <- true
@@ -88,6 +79,45 @@ func (h *hub) Wait() {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	db.MDB.WriteAllDelayOffline(ctx, time.Now())
+}
+
+func (h *Hub) SendUnregisterNotify(machine types.MachineKey, stakingType types.StakingType) {
+	h.wsConns.Range(func(key, value any) bool {
+		if client, ok := key.(*Client); ok {
+			if client.MachineKey == machine && client.StakingType == stakingType {
+				notify := types.WsNotifyMessage{
+					Unregister: types.WsUnregisterNotify{
+						Message: "machine unregistered, notify from http api",
+					},
+				}
+				jsonBody, err := json.Marshal(notify)
+				if err != nil {
+					log.Log.WithFields(logrus.Fields{
+						"machine": machine,
+					}).Errorf("send unregister notify message failed %v", err)
+				} else {
+					client.WriteResponse(&types.WsResponse{
+						WsHeader: types.WsHeader{
+							Version:   0,
+							Timestamp: time.Now().Unix(),
+							Id:        0,
+							Type:      uint32(types.WsMtNotify),
+							PubKey:    []byte(""),
+							Sign:      []byte(""),
+						},
+						Code:    0,
+						Message: "notify",
+						Body:    jsonBody,
+					})
+					log.Log.WithFields(logrus.Fields{
+						"machine": machine,
+					}).Info("begin to send unregister notify message")
+				}
+				return false
+			}
+		}
+		return true
+	})
 }
 
 func (do *delayOffline) HandleDelayOffline() {
