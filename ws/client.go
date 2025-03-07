@@ -60,7 +60,8 @@ type Client struct {
 	conn *websocket.Conn
 
 	// Buffered channel of outbound messages.
-	send chan []byte
+	send     chan []byte
+	sendDone chan bool
 
 	MachineKey  types.MachineKey
 	StakingType types.StakingType
@@ -82,6 +83,7 @@ func (c *Client) readPump(ctx context.Context) {
 	defer func() {
 		c.hub.wg.Done()
 		c.hub.wsConns.Delete(c)
+		close(c.sendDone)
 		close(c.send)
 		c.conn.Close()
 
@@ -226,7 +228,17 @@ func (c *Client) WriteResponse(res *types.WsResponse) error {
 		}).Errorf("marshal reponse with id %v failed: %v", res.Id, err)
 		return err
 	}
-	c.send <- resBytes
+	select {
+	case <-c.sendDone:
+		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
+			"machine": c.MachineKey,
+		}).Info("Sender received done signal, exiting")
+		return nil
+	default:
+		c.send <- resBytes
+	}
+
 	return nil
 }
 
@@ -478,6 +490,7 @@ func Ws2(hub *Hub, ctx *gin.Context, wsCtx context.Context) {
 		hub:      hub,
 		conn:     c,
 		send:     make(chan []byte, 512),
+		sendDone: make(chan bool),
 		ClientIP: ctx.ClientIP(),
 		ClientID: randomUUID.String(),
 	}
