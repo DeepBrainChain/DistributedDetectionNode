@@ -149,7 +149,8 @@ func (c *Client) readPump(ctx context.Context) {
 			continue
 		}
 
-		go c.handleRequest(ctx, req)
+		// go c.handleRequest(ctx, req)
+		c.handleRequest(ctx, req)
 	}
 
 	if c.MachineKey.MachineId != "" {
