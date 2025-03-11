@@ -42,8 +42,28 @@ Create a JSON configuration file, as shown below:
     "Database": "health_monitoring",
     "ExpireTime": 86400
   },
+  "IP2LocationDB": {
+    "DatabasePath": "./IP2LOCATION-LITE-DB5.BIN/IP2LOCATION-LITE-DB5.BIN"
+  },
   "Prometheus": {
     "JobName": "test"
+  },
+  "Chain": {
+    "Rpc": "https://rpc-testnet.dbcwallet.io",
+    "PrivateKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "ReportContract": {
+      "AbiFile": "./dbc/ai_abi.json",
+      "ContractAddress": "0xb616A0dad9af4cA23234b65D27176be2c09c720c",
+      "ChainId": 19850818
+    },
+    "MachineInfoContract": {
+      "AbiFile": "./dbc/0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0.json",
+      "ContractAddress": "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0",
+      "ChainId": 19850818
+    }
+  },
+  "NotifyThirdParty": {
+    "OfflineNotify": "https://nodeapi.deeplink.cloud/api/cyc/notifyOffline"
   }
 }
 ```
@@ -227,3 +247,7 @@ scrape_configs:
     static_configs:
       - targets: ["192.168.1.159:9527"]
 ```
+
+## References
+
+1. Product uses the IP2Location LITE database for <a href="https://lite.ip2location.com">IP geolocation</a>.
