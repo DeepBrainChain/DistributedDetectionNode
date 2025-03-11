@@ -23,14 +23,12 @@ import (
 )
 
 // Contract address of the deployed AI contract
-const contractAddressOnTestnet = "0xb616A0dad9af4cA23234b65D27176be2c09c720c"
+const reportContractAddressOnTestnet = "0x5d72d4f8be9055f519cF49a7B5ED3De07FDDDa39"
+const machineinfosContractAddressOnTestnet = "0xF9335c71583132d58E5320f73713beEf6da5257D"
 
 const dbcTestNetChainID = 19850818
 
 const dbcTestNetRPC = "https://rpc-testnet.dbcwallet.io"
-
-// const privateKey = "bf1de667d99a5cb417a54eacdb5d5224dd3cf068d4e6700ef39d3e0270cb8ef6"
-const privateKey = "346d6d6ff2fffa19cb153bf818b61dee2489a816d13c7710dd3f46ba6ebce17e"
 
 // go test -v -timeout 30s -count=1 -run TestDbcContract DistributedDetectionNode/dbc
 func TestDbcContract(t *testing.T) {
@@ -60,7 +58,7 @@ func TestDbcContract(t *testing.T) {
 	log.Printf("chain id: %v", cid.Int64())
 
 	// Private key of the account that will sign the transaction
-	privateKey, err := crypto.HexToECDSA(privateKey)
+	privateKey, err := crypto.HexToECDSA(os.Getenv("PRIVATE_KEY"))
 	if err != nil {
 		log.Fatalf("Failed to load private key: %v", err)
 	}
@@ -86,7 +84,7 @@ func TestDbcContract(t *testing.T) {
 	publicAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
 
 	// Define the target contract address
-	toAddress := common.HexToAddress(contractAddressOnTestnet)
+	toAddress := common.HexToAddress(reportContractAddressOnTestnet)
 
 	// Estimate gas limit
 	callMsg := ethereum.CallMsg{
@@ -141,15 +139,15 @@ func TestContractReport(t *testing.T) {
 	}
 	chainConfig := mt.ChainConfig{
 		Rpc:        dbcTestNetRPC,
-		PrivateKey: privateKey,
+		PrivateKey: os.Getenv("PRIVATE_KEY"),
 		ReportContract: mt.ContractConfig{
 			AbiFile:         "ai_abi.json",
-			ContractAddress: contractAddressOnTestnet,
+			ContractAddress: reportContractAddressOnTestnet,
 			ChainId:         dbcTestNetChainID,
 		},
 		MachineInfoContract: mt.ContractConfig{
-			AbiFile:         "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0.json",
-			ContractAddress: "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0",
+			AbiFile:         "machineinfos.json",
+			ContractAddress: machineinfosContractAddressOnTestnet,
 			ChainId:         0,
 		},
 	}
@@ -196,10 +194,8 @@ func TestContractReport(t *testing.T) {
 
 // go test -v -timeout 30s -count=1 -run TestGetMachineInfo DistributedDetectionNode/dbc
 func TestGetMachineInfo(t *testing.T) {
-	contractAddressOnTestnet := "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0"
-
 	// Define the target contract address
-	toAddress := common.HexToAddress(contractAddressOnTestnet)
+	toAddress := common.HexToAddress(machineinfosContractAddressOnTestnet)
 
 	// Connect to Ethereum node
 	client, err := ethclient.Dial(dbcTestNetRPC)
@@ -218,7 +214,7 @@ func TestGetMachineInfo(t *testing.T) {
 		log.Fatalf("Failed to new machineinfos instance: %v", err)
 	}
 
-	owner, calcPoint, cpuRate, gpuType, gpuMem, cpuType, gpuCount, machineId, longitude, latitude, machineMem, err := instance.GetMachineInfo(nil, "123456789", false)
+	owner, calcPoint, cpuRate, gpuType, gpuMem, cpuType, gpuCount, machineId, longitude, latitude, machineMem, err := instance.GetMachineInfo(nil, "98900e56cb4a2e0859bde5b1416797d110bd383603c18abcb967877b24a9dabe", false)
 	if err != nil {
 		log.Fatalf("Failed to get machine info: %v", err)
 	}
@@ -237,10 +233,8 @@ func TestGetMachineInfo(t *testing.T) {
 
 // go test -v -timeout 60s -count=1 -run TestSetMachineInfoWithAbi DistributedDetectionNode/dbc
 func TestSetMachineInfoWithAbi(t *testing.T) {
-	contractAddressOnTestnet := "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0"
 	// Load ABI from file
-	abiFile := fmt.Sprintf("%s.json", contractAddressOnTestnet)
-	abiData, err := os.ReadFile(abiFile)
+	abiData, err := os.ReadFile("machineinfos.json")
 	if err != nil {
 		log.Fatalf("Failed to read ABI file: %v", err)
 	}
@@ -264,7 +258,7 @@ func TestSetMachineInfoWithAbi(t *testing.T) {
 	log.Printf("chain id: %v", cid.Int64())
 
 	// Private key of the account that will sign the transaction
-	privateKey, err := crypto.HexToECDSA(privateKey)
+	privateKey, err := crypto.HexToECDSA(os.Getenv("PRIVATE_KEY"))
 	if err != nil {
 		log.Fatalf("Failed to load private key: %v", err)
 	}
@@ -294,17 +288,19 @@ func TestSetMachineInfoWithAbi(t *testing.T) {
 	// 'cpu_rate':2100,
 	// 'mem_num':32,
 	mi := machineinfos.MachineInfosMachineInfo{
+		// MachineOwner: common.HexToAddress("0xc759c00adf496ba19cf80bd878745c9a97a485f7"),
 		MachineOwner: publicAddress,
-		CalcPoint:    big.NewInt(126.89e2),
-		CpuRate:      big.NewInt(2.1e3),
-		GpuType:      "GeForceRTX4070SUPER",
-		GpuMem:       big.NewInt(12),
+		CalcPoint:    big.NewInt(931500),
+		CpuRate:      big.NewInt(3.5e3),
+		GpuType:      "NVIDIA GeForce RTX 4060 Ti",
+		GpuMem:       big.NewInt(8),
 		CpuType:      "13th Gen Intel(R) Core(TM) i7-13790F",
 		GpuCount:     big.NewInt(1),
 		MachineId:    "",
 		Longitude:    "",
 		Latitude:     "",
 		MachineMem:   big.NewInt(32),
+		Region:       "",
 	}
 
 	// Encode the function call
@@ -314,7 +310,7 @@ func TestSetMachineInfoWithAbi(t *testing.T) {
 	}
 
 	// Define the target contract address
-	toAddress := common.HexToAddress(contractAddressOnTestnet)
+	toAddress := common.HexToAddress(machineinfosContractAddressOnTestnet)
 
 	// Estimate gas limit
 	callMsg := ethereum.CallMsg{
@@ -361,13 +357,11 @@ func TestSetMachineInfoWithAbi(t *testing.T) {
 
 // go test -v -timeout 60s -count=1 -run TestSetMachineInfoWithoutAbi DistributedDetectionNode/dbc
 func TestSetMachineInfoWithoutAbi(t *testing.T) {
-	contractAddressOnTestnet := "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0"
-
 	// Define the target contract address
-	toAddress := common.HexToAddress(contractAddressOnTestnet)
+	toAddress := common.HexToAddress(machineinfosContractAddressOnTestnet)
 
 	// Private key of the account that will sign the transaction
-	privateKey, err := crypto.HexToECDSA(privateKey)
+	privateKey, err := crypto.HexToECDSA(os.Getenv("PRIVATE_KEY"))
 	if err != nil {
 		log.Fatalf("Failed to load private key: %v", err)
 	}
@@ -386,8 +380,7 @@ func TestSetMachineInfoWithoutAbi(t *testing.T) {
 	log.Printf("chain id: %v", cid.Int64())
 
 	// Load ABI from file
-	abiFile := fmt.Sprintf("%s.json", contractAddressOnTestnet)
-	abiData, err := os.ReadFile(abiFile)
+	abiData, err := os.ReadFile("machineinfos.json")
 	if err != nil {
 		log.Fatalf("Failed to read ABI file: %v", err)
 	}
