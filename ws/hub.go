@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 
 	"DistributedDetectionNode/db"
@@ -21,6 +23,7 @@ type Hub struct {
 	wg      sync.WaitGroup
 	wsConns sync.Map
 	do      *delayOffline
+	open    atomic.Bool
 }
 
 type cachedOfflineItem struct {
@@ -68,7 +71,25 @@ func InitHub(ctx context.Context, napi string) (*Hub, error) {
 		return nil, err
 	}
 	go hub.do.HandleDelayOffline()
+	hub.open.Store(true)
 	return hub, nil
+}
+
+func (h *Hub) Close() {
+	h.open.Store(false)
+	h.wsConns.Range(func(key, value any) bool {
+		if conn, ok := key.(*Client); ok {
+			conn.WriteEnvelope(envelope{t: websocket.CloseMessage, msg: []byte("server exiting")})
+			// conn.WriteEnvelope(envelope{t: websocket.CloseMessage, msg: websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")})
+			conn.conn.Close()
+		}
+		return true
+	})
+	log.Log.Println("Shutdownd all websocket connections")
+}
+
+func (h *Hub) closed() bool {
+	return !h.open.Load()
 }
 
 func (h *Hub) Wait() {

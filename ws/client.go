@@ -60,13 +60,18 @@ type Client struct {
 	conn *websocket.Conn
 
 	// Buffered channel of outbound messages.
-	send     chan []byte
+	send     chan envelope
 	sendDone chan bool
 
 	MachineKey  types.MachineKey
 	StakingType types.StakingType
 	ClientIP    string
 	ClientID    string
+}
+
+type envelope struct {
+	t   int
+	msg []byte
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -79,9 +84,9 @@ func (c *Client) readPump(ctx context.Context) {
 		"uuid":    c.ClientID,
 		"machine": c.MachineKey,
 	}).Info("read goroutine started")
-	c.hub.wg.Add(1)
+	// c.hub.wg.Add(1)
 	defer func() {
-		c.hub.wg.Done()
+		// c.hub.wg.Done()
 		c.hub.wsConns.Delete(c)
 		close(c.sendDone)
 		close(c.send)
@@ -155,8 +160,8 @@ func (c *Client) readPump(ctx context.Context) {
 
 	if c.MachineKey.MachineId != "" {
 		db.MDB.MachineDisconnected(ctx, c.MachineKey)
-		_, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
-		if err == nil {
+		mi, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
+		if err == nil && mi.CalcPoint != 0 && !c.hub.closed() {
 			c.hub.do.diconnect <- delayOfflineChanInfo{
 				machine:        c.MachineKey,
 				disconnectTime: time.Now(),
@@ -197,11 +202,16 @@ func (c *Client) writePump(ctx context.Context) {
 				return
 			}
 
-			w, err := c.conn.NextWriter(websocket.TextMessage)
+			if message.t == websocket.CloseMessage {
+				c.conn.WriteMessage(websocket.CloseMessage, message.msg)
+				return
+			}
+
+			w, err := c.conn.NextWriter(message.t) //websocket.TextMessage
 			if err != nil {
 				return
 			}
-			w.Write(message)
+			w.Write(message.msg)
 
 			// Add queued chat messages to the current websocket message.
 			// n := len(c.send)
@@ -229,18 +239,22 @@ func (c *Client) WriteResponse(res *types.WsResponse) error {
 		}).Errorf("marshal reponse with id %v failed: %v", res.Id, err)
 		return err
 	}
+
+	c.WriteEnvelope(envelope{t: websocket.TextMessage, msg: resBytes})
+
+	return nil
+}
+
+func (c *Client) WriteEnvelope(message envelope) {
 	select {
 	case <-c.sendDone:
 		log.Log.WithFields(logrus.Fields{
 			"uuid":    c.ClientID,
 			"machine": c.MachineKey,
 		}).Info("Sender received done signal, exiting")
-		return nil
 	default:
-		c.send <- resBytes
+		c.send <- message
 	}
-
-	return nil
 }
 
 func (c *Client) RespondRequest(req *types.WsRequest, code uint32, message string, body []byte) error {
@@ -490,7 +504,7 @@ func Ws2(hub *Hub, ctx *gin.Context, wsCtx context.Context) {
 	client := &Client{
 		hub:      hub,
 		conn:     c,
-		send:     make(chan []byte, 512),
+		send:     make(chan envelope, 32),
 		sendDone: make(chan bool),
 		ClientIP: ctx.ClientIP(),
 		ClientID: randomUUID.String(),
@@ -501,5 +515,6 @@ func Ws2(hub *Hub, ctx *gin.Context, wsCtx context.Context) {
 	)
 
 	go client.writePump(wsCtx)
-	go client.readPump(context.Background())
+	// go client.readPump(context.Background())
+	client.readPump(context.Background())
 }

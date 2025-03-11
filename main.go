@@ -208,6 +208,7 @@ func main() {
 	}
 
 	// ws.ShutdownAllWsConns()
+	wsHub.Close()
 	wg.Wait()
 
 	wsCancel()
