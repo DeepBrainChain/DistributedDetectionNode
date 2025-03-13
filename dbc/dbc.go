@@ -164,10 +164,10 @@ func (chain *dbcChain) Report(
 	return signedTx.Hash().Hex(), nil
 }
 
-func (chain *dbcChain) SetMachineInfo(
+func (chain *dbcChain) SetDeepLinkMachineInfoST(
 	ctx context.Context,
 	mk mt.MachineKey,
-	mi mt.MachineInfo,
+	mi mt.DeepLinkMachineInfoST,
 	calcPoint int64,
 	longitude, latitude float32,
 ) (string, error) {

@@ -282,8 +282,8 @@ func (c *Client) handleRequest(ctx context.Context, req *types.WsRequest) {
 	switch req.Type {
 	case uint32(types.WsMtOnline):
 		code, message, body = c.handleOnlineRequest(ctx, req)
-	case uint32(types.WsMtMachineInfo):
-		code, message, body = c.handleMachineInfoRequest(ctx, req)
+	case uint32(types.WsMtDeepLinkMachineInfoST):
+		code, message, body = c.handleDeepLinkMachineInfoSTRequest(ctx, req)
 	default:
 		code = uint32(types.ErrCodeParam)
 		message = "unknowned request message type"
@@ -363,12 +363,12 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 	return 0, "machine online success", []byte("")
 }
 
-func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequest) (uint32, string, []byte) {
+func (c *Client) handleDeepLinkMachineInfoSTRequest(ctx context.Context, req *types.WsRequest) (uint32, string, []byte) {
 	if c.MachineKey.MachineId == "" {
 		return uint32(types.ErrCodeMachineInfo), "machine id is empty, need send online request first", []byte("")
 	}
 
-	miReq := types.WsMachineInfoRequest{}
+	miReq := types.DeepLinkMachineInfoST{}
 	if err := json.Unmarshal(req.Body, &miReq); err != nil {
 		return uint32(types.ErrCodeParam), fmt.Sprintf("parse machine info request failed: %v", err), []byte("")
 	}
@@ -379,7 +379,7 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 	mi, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
 	if err != nil {
 		return uint32(types.ErrCodeDatabase), fmt.Sprintf("get machine info from database failed: %v", err), []byte("")
-	} else if mi.CalcPoint == 0 {
+	} else if mi.MDBDeepLinkMachineInfoST.CalcPoint == 0 {
 		calcPoint, err := calculator.CalculatePointFromReport(
 			miReq.GPUNames,
 			miReq.GPUMemoryTotal,
@@ -410,10 +410,10 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 				}).Infof("get location (%f, %f) from ip address %v", loc.Longitude, loc.Latitude, c.ClientIP)
 			}
 
-			if hash, err := dbc.DbcChain.SetMachineInfo(
+			if hash, err := dbc.DbcChain.SetDeepLinkMachineInfoST(
 				ctx,
 				c.MachineKey,
-				types.MachineInfo(miReq),
+				miReq,
 				int64(calcPoint*10000),
 				loc.Longitude,
 				loc.Latitude,
@@ -433,10 +433,12 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 				if err := db.MDB.SetMachineInfo(
 					ctx,
 					c.MachineKey,
-					miReq,
-					calcPoint,
-					loc.Longitude,
-					loc.Latitude,
+					&types.MDBDeepLinkMachineInfoST{
+						DeepLinkMachineInfoST: miReq,
+						CalcPoint:             calcPoint,
+						Longitude:             loc.Longitude,
+						Latitude:              loc.Latitude,
+					},
 				); err != nil {
 					return uint32(types.ErrCodeDbcChain), fmt.Sprintf("set machine info in database failed %v", err), []byte("")
 				} else {
@@ -451,14 +453,16 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 		log.Log.WithFields(logrus.Fields{
 			"uuid":    c.ClientID,
 			"machine": c.MachineKey,
-		}).WithField("machine info", miReq).Info("get machine info success and calcpoint ", mi.CalcPoint)
+		}).WithField("machine info", miReq).Info("get machine info success and calcpoint ", mi.MDBDeepLinkMachineInfoST.CalcPoint)
 	}
 
 	if err := db.MDB.AddMachineTM(
 		ctx,
-		c.MachineKey,
-		time.UnixMilli(req.Timestamp),
-		miReq,
+		types.MDBMachineTM{
+			Timestamp:             time.UnixMilli(req.Timestamp),
+			Machine:               c.MachineKey,
+			DeepLinkMachineInfoST: miReq,
+		},
 	); err != nil {
 		return uint32(types.ErrCodeDatabase), fmt.Sprintf("add machine tm in database failed %v", err), []byte("")
 	}

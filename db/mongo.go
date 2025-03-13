@@ -178,10 +178,10 @@ func (db *mongoDB) GetMachineInfo(ctx context.Context, machine types.MachineKey)
 
 func (db *mongoDB) RegisterMachine(ctx context.Context, machine types.MachineKey, stakingType types.StakingType) error {
 	res, err := db.machineInfoCollection.InsertOne(ctx, types.MDBMachineInfo{
-		MachineKey:   machine,
-		StakingType:  uint8(stakingType),
-		CalcPoint:    0,
-		RegisterTime: time.Now(),
+		MachineKey:               machine,
+		StakingType:              uint8(stakingType),
+		RegisterTime:             time.Now(),
+		MDBDeepLinkMachineInfoST: types.MDBDeepLinkMachineInfoST{},
 	})
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("insert machine info failed: ", err)
@@ -211,9 +211,7 @@ func (db *mongoDB) UnregisterMachine(ctx context.Context, machine types.MachineK
 func (db *mongoDB) SetMachineInfo(
 	ctx context.Context,
 	machine types.MachineKey,
-	info types.WsMachineInfoRequest,
-	calcPoint float64,
-	longitude, latitude float32,
+	deeplink_st *types.MDBDeepLinkMachineInfoST,
 ) error {
 	update, err := db.machineInfoCollection.UpdateOne(
 		ctx,
@@ -224,16 +222,7 @@ func (db *mongoDB) SetMachineInfo(
 		},
 		bson.M{
 			"$set": bson.M{
-				"gpu_names":        info.GPUNames,
-				"gpu_memory_total": info.GPUMemoryTotal,
-				"memory_total":     info.MemoryTotal,
-				"cpu_type":         info.CpuType,
-				"cpu_rate":         info.CpuRate,
-				"wallet":           info.Wallet,
-				"client_ip":        info.ClientIP,
-				"calc_point":       calcPoint,
-				"longitude":        longitude,
-				"latitude":         latitude,
+				"deeplink_st": deeplink_st,
 			},
 		},
 		options.Update().SetUpsert(true),
@@ -312,20 +301,16 @@ func (db *mongoDB) OfflineMachine(ctx context.Context, machine types.MachineKey,
 	return nil
 }
 
-func (db *mongoDB) AddMachineTM(ctx context.Context, machine types.MachineKey, tm time.Time, info types.WsMachineInfoRequest) error {
+func (db *mongoDB) AddMachineTM(ctx context.Context, mtm types.MDBMachineTM) error {
 	result, err := db.machineTMCollection.InsertOne(
 		ctx,
-		types.MDBMachineTM{
-			Timestamp:   tm,
-			Machine:     machine,
-			MachineInfo: types.MachineInfo(info),
-		},
+		mtm,
 	)
 	if err != nil {
-		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("insert machine tm info failed: ", err)
+		log.Log.WithFields(logrus.Fields{"machine": mtm.Machine}).Error("insert machine tm info failed: ", err)
 		return err
 	}
-	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("inserted machine tm info id ", result.InsertedID)
+	log.Log.WithFields(logrus.Fields{"machine": mtm.Machine}).Info("inserted machine tm info id ", result.InsertedID)
 	return nil
 }
 
