@@ -317,44 +317,38 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 		return uint32(types.ErrCodeParam), "machine id is empty", []byte("")
 	}
 
-	ctx1, cancel1 := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel1()
-	if db.MDB.IsMachineConnected(ctx1, onlineReq.MachineKey) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	if db.MDB.IsMachineConnected(ctx, onlineReq.MachineKey) {
 		return uint32(types.ErrCodeOnline), "machine has been online, repeated connection", []byte("")
 	}
 
-	_, err := db.MDB.GetMachineInfo(ctx1, onlineReq.MachineKey)
+	_, err := db.MDB.GetMachineInfo(ctx, onlineReq.MachineKey)
 	if err != nil {
 		return uint32(types.ErrCodeOnline), "machine not registered", []byte("")
 	}
 
-	{
-		ctx2, cancel2 := context.WithTimeout(ctx, 60*time.Second)
-		defer cancel2()
-		if hash, err := dbc.DbcChain.Report(
-			ctx2,
-			types.MachineOnline,
-			onlineReq.StakingType,
-			onlineReq.Project,
-			onlineReq.MachineId,
-		); err != nil {
-			errMsg := fmt.Sprintf(
-				"machine online in chain contract failed with hash %v because of %v",
-				hash,
-				err,
-			)
-			return uint32(types.ErrCodeDbcChain), errMsg, []byte("")
-		} else {
-			log.Log.WithFields(logrus.Fields{
-				"uuid":    c.ClientID,
-				"machine": onlineReq,
-			}).Info("machine online in chain contract success with hash ", hash)
-		}
+	if hash, err := dbc.DbcChain.Report(
+		ctx,
+		types.MachineOnline,
+		onlineReq.StakingType,
+		onlineReq.Project,
+		onlineReq.MachineId,
+	); err != nil {
+		errMsg := fmt.Sprintf(
+			"machine online in chain contract failed with hash %v because of %v",
+			hash,
+			err,
+		)
+		return uint32(types.ErrCodeDbcChain), errMsg, []byte("")
+	} else {
+		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
+			"machine": onlineReq,
+		}).Info("machine online in chain contract success with hash ", hash)
 	}
 
-	ctx2, cancel2 := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel2()
-	if err := db.MDB.MachineConnected(ctx2, onlineReq.MachineKey); err != nil {
+	if err := db.MDB.MachineConnected(ctx, onlineReq.MachineKey); err != nil {
 		return uint32(types.ErrCodeDatabase), fmt.Sprintf("insert online database failed: %v", err), []byte("")
 	}
 
@@ -380,9 +374,9 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 	}
 	miReq.ClientIP = c.ClientIP
 
-	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel1()
-	mi, err := db.MDB.GetMachineInfo(ctx1, c.MachineKey)
+	ctx, cancel := context.WithTimeout(ctx, 80*time.Second)
+	defer cancel()
+	mi, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
 	if err != nil {
 		return uint32(types.ErrCodeDatabase), fmt.Sprintf("get machine info from database failed: %v", err), []byte("")
 	} else if mi.CalcPoint == 0 {
@@ -416,10 +410,8 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 				}).Infof("get location (%f, %f) from ip address %v", loc.Longitude, loc.Latitude, c.ClientIP)
 			}
 
-			ctx2, cancel2 := context.WithTimeout(ctx, 60*time.Second)
-			defer cancel2()
 			if hash, err := dbc.DbcChain.SetMachineInfo(
-				ctx2,
+				ctx,
 				c.MachineKey,
 				types.MachineInfo(miReq),
 				int64(calcPoint*10000),
@@ -438,10 +430,8 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 					"machine": c.MachineKey,
 				}).Info("set machine info in chain contract success with hash ", hash)
 
-				ctx3, cancel3 := context.WithTimeout(ctx, 10*time.Second)
-				defer cancel3()
 				if err := db.MDB.SetMachineInfo(
-					ctx3,
+					ctx,
 					c.MachineKey,
 					miReq,
 					calcPoint,
@@ -464,10 +454,8 @@ func (c *Client) handleMachineInfoRequest(ctx context.Context, req *types.WsRequ
 		}).WithField("machine info", miReq).Info("get machine info success and calcpoint ", mi.CalcPoint)
 	}
 
-	ctx2, cancel2 := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel2()
 	if err := db.MDB.AddMachineTM(
-		ctx2,
+		ctx,
 		c.MachineKey,
 		time.UnixMilli(req.Timestamp),
 		miReq,
