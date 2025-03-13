@@ -10,6 +10,7 @@ import (
 // go test -v -timeout 30s -count=1 -run TestCalcPoint DistributedDetectionNode/dbc/calculator
 func TestCalcPoint(t *testing.T) {
 	gpuNames := []string{"NVIDIA GeForce RTX 4060 Ti"}
+	// gpuNames := []string{"NVIDIA GeForce RTX 3070 Laptop GPU"}
 	// gpuMemoryTotals := []int32{8192}
 	gpuMemoryTotals := []int32{16384}
 	// gpuNames := []string{
@@ -36,7 +37,15 @@ func TestCalcPoint(t *testing.T) {
 		if fd == -1 {
 			log.Fatalf("invalid gpu type: %v", name)
 		}
-		gpuNames[i] = strings.ToLower(name[fd:])
+		// gpuNames[i] = strings.ToLower(name[fd:])
+		parts := strings.Split(strings.ToLower(name[fd:]), " ")
+		filteredParts := []string{}
+		for ii, part := range parts {
+			if ii == 0 || part == "ti" || part == "super" || part == "d" || part == "oc" || part == "ultra" {
+				filteredParts = append(filteredParts, part)
+			}
+		}
+		gpuNames[i] = strings.Join(filteredParts, " ")
 	}
 	log.Printf("match gpu type: %v", gpuNames)
 

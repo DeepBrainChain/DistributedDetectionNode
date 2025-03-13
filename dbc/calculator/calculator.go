@@ -209,7 +209,15 @@ func CalculatePointFromReport(gpuNames []string, gpuMemoryTotals []int32, memory
 		if fd == -1 {
 			continue
 		}
-		matchedGpuNames = append(matchedGpuNames, strings.ToLower(name[fd:]))
+		// matchedGpuNames = append(matchedGpuNames, strings.ToLower(name[fd:]))
+		parts := strings.Split(strings.ToLower(name[fd:]), " ")
+		filteredParts := []string{}
+		for ii, part := range parts {
+			if ii == 0 || part == "ti" || part == "super" || part == "d" || part == "oc" || part == "ultra" {
+				filteredParts = append(filteredParts, part)
+			}
+		}
+		matchedGpuNames = append(matchedGpuNames, strings.Join(filteredParts, " "))
 	}
 
 	// 8192 MB => 8 GB
