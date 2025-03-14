@@ -380,11 +380,22 @@ func (c *Client) handleDeepLinkMachineInfoSTRequest(ctx context.Context, req *ty
 	if err != nil {
 		return uint32(types.ErrCodeDatabase), fmt.Sprintf("get machine info from database failed: %v", err), []byte("")
 	} else if mi.MDBDeepLinkMachineInfoST.CalcPoint == 0 {
-		calcPoint, err := calculator.CalculatePointFromReport(
+		calcPoint, err := calculator.CalculatePointExactFromReport(
 			miReq.GPUNames,
 			miReq.GPUMemoryTotal,
 			miReq.MemoryTotal,
 		)
+		if calcPoint == 0 {
+			log.Log.WithFields(logrus.Fields{
+				"uuid":    c.ClientID,
+				"machine": c.MachineKey,
+			}).Errorf("calculate gpu point from report %v failed %v", miReq, err)
+			calcPoint, err = calculator.CalculatePointFuzzyFromReport(
+				miReq.GPUNames,
+				miReq.MemoryTotal,
+			)
+		}
+
 		if calcPoint == 0 {
 			log.Log.WithFields(logrus.Fields{
 				"uuid":    c.ClientID,

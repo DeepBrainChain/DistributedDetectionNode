@@ -39,6 +39,16 @@ var nvidiaGpuInfoList = []GpuInfo{
 		MemoryTotal: 11,
 	},
 	{
+		Name:        "3050",
+		CudaCore:    2304,
+		MemoryTotal: 6,
+	},
+	{
+		Name:        "3050",
+		CudaCore:    2560,
+		MemoryTotal: 8,
+	},
+	{
 		Name:        "3060",
 		CudaCore:    3584,
 		MemoryTotal: 12,
@@ -150,7 +160,8 @@ var nvidiaGpuInfoList = []GpuInfo{
 	},
 }
 
-func CalculatePoint(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int32) (float64, error) {
+// gpu model exact match with gpu_memory
+func CalculatePointExact(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int32) (float64, error) {
 	if len(gpuNames) != len(gpuMemoryTotals) {
 		return 0.0, errors.New("gpu name and memory list are inconsistent")
 	}
@@ -192,7 +203,47 @@ func CalculatePoint(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int3
 	return math.Round(point*ratio) / ratio, nil
 }
 
-func CalculatePointFromReport(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int64) (float64, error) {
+// gpu model fuzzy query without gpu_memory
+func CalculatePointFuzzy(gpuNames []string, memoryTotal int32) (float64, error) {
+	gpuCount := len(gpuNames)
+	// cudaCores := make([]int32, 0, len(gpuNames))
+	var (
+		minCudaCore  int32 = 0
+		minGpuMemory int32 = 0
+	)
+	for _, name := range gpuNames {
+		// cudaCores[i] = 0
+		// gpuInfo, ok := nvidiaGpuInfoList[name]
+		// if !ok {
+		// 	return 0.0
+		// }
+		for _, gpuInfo := range nvidiaGpuInfoList {
+			if gpuInfo.Name == name {
+				// if strings.EqualFold(gpuInfo.Name, name) {
+				// cudaCores[i] = gpuInfo.CudaCore
+				if minCudaCore == 0 || gpuInfo.CudaCore < minCudaCore {
+					minCudaCore = gpuInfo.CudaCore
+					minGpuMemory = gpuInfo.MemoryTotal
+				}
+				break
+			}
+		}
+	}
+	if minCudaCore == 0 {
+		return 0.0, errors.New("can not find the number of cuda cores")
+	}
+	// fmt.Println(minCudaCore)
+	// fmt.Println(minGpuMemory)
+
+	point := float64(memoryTotal) / 3.5
+	point += float64(gpuCount) * 25
+	point += math.Sqrt(float64(minCudaCore)) * math.Sqrt(float64(minGpuMemory)/10) * float64(gpuCount)
+	// return point, nil
+	ratio := math.Pow(10, 2)
+	return math.Round(point*ratio) / ratio, nil
+}
+
+func CalculatePointExactFromReport(gpuNames []string, gpuMemoryTotals []int32, memoryTotal int64) (float64, error) {
 	findFirstDigit := func(s string) int {
 		for i, char := range s {
 			if char >= '0' && char <= '9' {
@@ -227,5 +278,38 @@ func CalculatePointFromReport(gpuNames []string, gpuMemoryTotals []int32, memory
 
 	// 17105440768 Bytes => 16 GB
 	// memoryTotal = int64(math.Round(float64(memoryTotal) / (1024 * 1024 * 1024)))
-	return CalculatePoint(matchedGpuNames, gpuMemoryTotals, int32(memoryTotal))
+	return CalculatePointExact(matchedGpuNames, gpuMemoryTotals, int32(memoryTotal))
+}
+
+func CalculatePointFuzzyFromReport(gpuNames []string, memoryTotal int64) (float64, error) {
+	findFirstDigit := func(s string) int {
+		for i, char := range s {
+			if char >= '0' && char <= '9' {
+				return i
+			}
+		}
+		return -1
+	}
+
+	// "NVIDIA GeForce RTX 4060 Ti" => "4060 ti"
+	matchedGpuNames := make([]string, 0)
+	for _, name := range gpuNames {
+		fd := findFirstDigit(name)
+		if fd == -1 {
+			continue
+		}
+		// matchedGpuNames = append(matchedGpuNames, strings.ToLower(name[fd:]))
+		parts := strings.Split(strings.ToLower(name[fd:]), " ")
+		filteredParts := []string{}
+		for ii, part := range parts {
+			if ii == 0 || part == "ti" || part == "super" || part == "d" || part == "oc" || part == "ultra" {
+				filteredParts = append(filteredParts, part)
+			}
+		}
+		matchedGpuNames = append(matchedGpuNames, strings.Join(filteredParts, " "))
+	}
+
+	// 17105440768 Bytes => 16 GB
+	// memoryTotal = int64(math.Round(float64(memoryTotal) / (1024 * 1024 * 1024)))
+	return CalculatePointFuzzy(matchedGpuNames, int32(memoryTotal))
 }

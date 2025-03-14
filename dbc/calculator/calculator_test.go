@@ -57,7 +57,7 @@ func TestCalcPoint(t *testing.T) {
 	memoryTotal = int(math.Round(float64(memoryTotal) / (1024 * 1024 * 1024)))
 	log.Printf("physical memory total: %vGB", memoryTotal)
 
-	calcPoint, err := CalculatePoint(gpuNames, gpuMemoryTotals, int32(memoryTotal))
+	calcPoint, err := CalculatePointExact(gpuNames, gpuMemoryTotals, int32(memoryTotal))
 	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
 }
 
@@ -69,7 +69,7 @@ func TestCalcPoint2(t *testing.T) {
 	// memoryTotal := int64(34256556032)
 	memoryTotal = int64(math.Round(float64(memoryTotal) / (1024 * 1024 * 1024)))
 
-	calcPoint, err := CalculatePointFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
+	calcPoint, err := CalculatePointExactFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
 	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
 
 	gpuNames = []string{
@@ -81,7 +81,7 @@ func TestCalcPoint2(t *testing.T) {
 	gpuMemoryTotals = []int32{16384, 8192, 8192, 8192}
 	memoryTotal = int64(128) // int64(137438953472)
 
-	calcPoint, err = CalculatePointFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
+	calcPoint, err = CalculatePointExactFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
 	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
 }
 
@@ -91,6 +91,19 @@ func TestCalcPoint3(t *testing.T) {
 	gpuMemoryTotals := []int32{12282}
 	memoryTotal := int64(32)
 
-	calcPoint, err := CalculatePointFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
+	calcPoint, err := CalculatePointExactFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
+	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
+}
+
+func TestCalcPoint4(t *testing.T) {
+	gpuNames := []string{"NVIDIA GeForce RTX 3070 Laptop GPU"}
+	// gpuMemoryTotals := []int32{8192}
+	gpuMemoryTotals := []int32{16384}
+	memoryTotal := int64(32)
+
+	calcPoint, err := CalculatePointExactFromReport(gpuNames, gpuMemoryTotals, memoryTotal)
+	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
+
+	calcPoint, err = CalculatePointFuzzyFromReport(gpuNames, memoryTotal)
 	log.Printf("%v %v %v %v", gpuNames, gpuMemoryTotals, calcPoint, err)
 }
