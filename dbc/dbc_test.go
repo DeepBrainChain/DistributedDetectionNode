@@ -139,16 +139,15 @@ func TestContractReport(t *testing.T) {
 	}
 	chainConfig := mt.ChainConfig{
 		Rpc:        dbcTestNetRPC,
+		ChainId:    dbcTestNetChainID,
 		PrivateKey: os.Getenv("PRIVATE_KEY"),
 		ReportContract: mt.ContractConfig{
 			AbiFile:         "ai_abi.json",
 			ContractAddress: reportContractAddressOnTestnet,
-			ChainId:         dbcTestNetChainID,
 		},
 		MachineInfoContract: mt.ContractConfig{
 			AbiFile:         "machineinfos.json",
 			ContractAddress: machineinfosContractAddressOnTestnet,
-			ChainId:         0,
 		},
 	}
 	if err := InitDbcChain(ctx, chainConfig); err != nil {
@@ -214,21 +213,21 @@ func TestGetMachineInfo(t *testing.T) {
 		log.Fatalf("Failed to new machineinfos instance: %v", err)
 	}
 
-	owner, calcPoint, cpuRate, gpuType, gpuMem, cpuType, gpuCount, machineId, longitude, latitude, machineMem, err := instance.GetMachineInfo(nil, "98900e56cb4a2e0859bde5b1416797d110bd383603c18abcb967877b24a9dabe", false)
+	mi, err := instance.GetMachineInfo(nil, "98900e56cb4a2e0859bde5b1416797d110bd383603c18abcb967877b24a9dabe", false)
 	if err != nil {
 		log.Fatalf("Failed to get machine info: %v", err)
 	}
-	log.Printf("Machine owner: %v", owner.String())
-	log.Printf("CalcPoint: %v", calcPoint.Int64())
-	log.Printf("CpuRate: %v", cpuRate.Int64())
-	log.Printf("GpuType: %v", gpuType)
-	log.Printf("GpuMem: %v", gpuMem.Int64())
-	log.Printf("CpuType: %v", cpuType)
-	log.Printf("GpuCount: %v", gpuCount.Int64())
-	log.Printf("MachineId: %v", machineId)
-	log.Printf("Longitude: %v", longitude)
-	log.Printf("Latitude: %v", latitude)
-	log.Printf("MachineMem: %v", machineMem.Int64())
+	log.Printf("Machine owner: %v", mi.MachineOwner.String())
+	log.Printf("CalcPoint: %v", mi.CalcPoint.Int64())
+	log.Printf("CpuRate: %v", mi.CpuRate.Int64())
+	log.Printf("GpuType: %v", mi.GpuType)
+	log.Printf("GpuMem: %v", mi.GpuMem.Int64())
+	log.Printf("CpuType: %v", mi.CpuType)
+	log.Printf("GpuCount: %v", mi.GpuCount.Int64())
+	log.Printf("MachineId: %v", mi.MachineId)
+	log.Printf("Longitude: %v", mi.Longitude)
+	log.Printf("Latitude: %v", mi.Latitude)
+	log.Printf("MachineMem: %v", mi.MachineMem.Int64())
 }
 
 // go test -v -timeout 60s -count=1 -run TestSetMachineInfoWithAbi DistributedDetectionNode/dbc

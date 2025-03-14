@@ -27,6 +27,7 @@ const (
 	WsMtOnline WsMessageType = iota + 1
 	WsMtDeepLinkMachineInfoST
 	WsMtNotify
+	WsMtDeepLinkMachineInfoBW
 )
 
 type WsConnInfo struct {

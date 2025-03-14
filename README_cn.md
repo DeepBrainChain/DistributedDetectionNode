@@ -50,16 +50,15 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=v0.1.5"
   },
   "Chain": {
     "Rpc": "https://rpc-testnet.dbcwallet.io",
+    "ChainId": 19850818,
     "PrivateKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "ReportContract": {
       "AbiFile": "./dbc/ai_abi.json",
-      "ContractAddress": "0xb616A0dad9af4cA23234b65D27176be2c09c720c",
-      "ChainId": 19850818
+      "ContractAddress": "0xb616A0dad9af4cA23234b65D27176be2c09c720c"
     },
     "MachineInfoContract": {
       "AbiFile": "./dbc/0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0.json",
-      "ContractAddress": "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0",
-      "ChainId": 19850818
+      "ContractAddress": "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0"
     }
   },
   "NotifyThirdParty": {
@@ -141,22 +140,42 @@ client 向 server 发送的请求消息主要由 Header 和 Body 两部分组成
 - 1 - Online，表示 WebSocket 连接属于那个设备或者节点。
 ```json
 {
-  "node_id": "123456789"
+  "machine_id": "123456789",
+  "project": "deeplink",
+  "staking_type": 0
 }
 ```
-- 2 - 设备信息，定时发送的模型和显卡使用信息。
+- 2 - DeepLink 短租设备信息，定时发送显卡等机器信息。
 ```json
 {
-  "project": "DecentralGPT",
-  "models": [
-    {
-      "model": "Codestral-22B-v0.1"
-    }
+  "cpu_type": "13th Gen Intel(R) Core(TM) i5-13400F",
+  "cpu_rate": 2500,
+  "gpu_names": [
+    "NVIDIA GeForce RTX 4060"
   ],
-  "gpu_name": "NVIDIA RTX A5000",
-  "utilization_gpu": 30,
-  "memory_total": 24564,
-  "memory_used": 22128
+  "gpu_memory_total": [
+    8
+  ],
+  "memory_total": 16,
+  "wallet": "xxxxxx"
+}
+```
+- 3 - 通知消息。
+```json
+{
+  "unregister": {
+    "message": "machine unregistered, notify from node server"
+  }
+}
+```
+- 4 - DeepLink 带宽挖矿设备信息。
+```json
+{
+  "cpu_cores": 1,
+  "memory_total": 2,
+  "hdd": 50,
+  "bandwidth": 10,
+  "wallet": "xxxxxx"
 }
 ```
 

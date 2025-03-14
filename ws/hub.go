@@ -243,7 +243,7 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 						} else {
 							log.Log.WithFields(logrus.Fields{
 								"machine": info.machine,
-							}).Errorf("failed to send offline notify request %v times: %v", retries, err)
+							}).Errorf("failed to send offline notify request %v times: %v %v", retries, result.Code, result.Msg)
 						}
 					}
 				}

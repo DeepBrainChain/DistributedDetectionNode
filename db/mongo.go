@@ -178,10 +178,11 @@ func (db *mongoDB) GetMachineInfo(ctx context.Context, machine types.MachineKey)
 
 func (db *mongoDB) RegisterMachine(ctx context.Context, machine types.MachineKey, stakingType types.StakingType) error {
 	res, err := db.machineInfoCollection.InsertOne(ctx, types.MDBMachineInfo{
-		MachineKey:               machine,
-		StakingType:              uint8(stakingType),
-		RegisterTime:             time.Now(),
-		MDBDeepLinkMachineInfoST: types.MDBDeepLinkMachineInfoST{},
+		MachineKey:                      machine,
+		StakingType:                     uint8(stakingType),
+		RegisterTime:                    time.Now(),
+		MDBDeepLinkMachineInfoST:        types.MDBDeepLinkMachineInfoST{},
+		MDBDeepLinkMachineInfoBandwidth: types.MDBDeepLinkMachineInfoBandwidth{},
 	})
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("insert machine info failed: ", err)
@@ -212,6 +213,7 @@ func (db *mongoDB) SetMachineInfo(
 	ctx context.Context,
 	machine types.MachineKey,
 	deeplink_st *types.MDBDeepLinkMachineInfoST,
+	deeplink_bw *types.MDBDeepLinkMachineInfoBandwidth,
 ) error {
 	update, err := db.machineInfoCollection.UpdateOne(
 		ctx,
@@ -223,6 +225,7 @@ func (db *mongoDB) SetMachineInfo(
 		bson.M{
 			"$set": bson.M{
 				"deeplink_st": deeplink_st,
+				"deeplink_bw": deeplink_bw,
 			},
 		},
 		options.Update().SetUpsert(true),

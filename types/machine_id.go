@@ -1,5 +1,7 @@
 package types
 
+import "errors"
+
 type MachineKey struct {
 	MachineId   string `json:"machine_id" bson:"machine_id"`
 	Project     string `json:"project" bson:"project"`
@@ -29,4 +31,55 @@ type DeepLinkMachineInfoST struct {
 	CpuRate        int32    `json:"cpu_rate" bson:"cpu_rate,omitempty"`
 	Wallet         string   `json:"wallet" bson:"wallet,omitempty"`
 	ClientIP       string   `json:"client_ip" bson:"client_ip,omitempty"`
+}
+
+// machine info of deeplink bandwidth
+type DeepLinkMachineInfoBandwidth struct {
+	CpuCores    int32  `json:"cpu_cores" bson:"cpu_cores,omitempty"`
+	MemoryTotal int64  `json:"memory_total" bson:"memory_total,omitempty"` // GB
+	Hdd         int64  `json:"hdd" bson:"hdd,omitempty"`
+	Bandwidth   int32  `json:"bandwidth" bson:"bandwidth,omitempty"`
+	Wallet      string `json:"wallet" bson:"wallet,omitempty"`
+	ClientIP    string `json:"client_ip" bson:"client_ip,omitempty"`
+}
+
+func (info *DeepLinkMachineInfoST) Validate() error {
+	if len(info.GPUNames) == 0 {
+		return errors.New("empty gpu names")
+	}
+	if len(info.GPUMemoryTotal) == 0 {
+		return errors.New("empty gpu memory total")
+	}
+	if info.MemoryTotal == 0 {
+		return errors.New("invalid memory total")
+	}
+	if info.CpuType == "" {
+		return errors.New("empty cpu type")
+	}
+	if info.CpuRate == 0 {
+		return errors.New("invalid cpu rate")
+	}
+	if info.Wallet == "" {
+		return errors.New("empty wallet")
+	}
+	return nil
+}
+
+func (info *DeepLinkMachineInfoBandwidth) Validate() error {
+	if info.CpuCores == 0 {
+		return errors.New("invalid cpu cores")
+	}
+	if info.MemoryTotal == 0 {
+		return errors.New("invalid memory total")
+	}
+	if info.Hdd == 0 {
+		return errors.New("invalid hdd")
+	}
+	if info.Bandwidth == 0 {
+		return errors.New("invalid bandwidth")
+	}
+	if info.Wallet == "" {
+		return errors.New("empty wallet")
+	}
+	return nil
 }

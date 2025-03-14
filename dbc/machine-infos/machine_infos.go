@@ -29,6 +29,17 @@ var (
 	_ = abi.ConvertType
 )
 
+// MachineInfosBandWidthMintInfo is an auto generated low-level Go binding around an user-defined struct.
+type MachineInfosBandWidthMintInfo struct {
+	MachineOwner common.Address
+	MachineId    string
+	CpuCores     *big.Int
+	MachineMem   *big.Int
+	Region       string
+	Hdd          *big.Int
+	Bandwidth    *big.Int
+}
+
 // MachineInfosMachineInfo is an auto generated low-level Go binding around an user-defined struct.
 type MachineInfosMachineInfo struct {
 	MachineOwner common.Address
@@ -48,7 +59,7 @@ type MachineInfosMachineInfo struct {
 
 // MachineinfosMetaData contains all meta data concerning the Machineinfos contract.
 var MachineinfosMetaData = &bind.MetaData{
-	ABI: "[{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint8\",\"name\":\"version\",\"type\":\"uint8\"}],\"name\":\"Initialized\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"OwnershipTransferred\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"DOMAIN_TYPEHASH\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"VERIFY_TYPEHASH\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"_id\",\"type\":\"string\"},{\"internalType\":\"bool\",\"name\":\"_isDeepLink\",\"type\":\"bool\"}],\"name\":\"getMachineInfo\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"_id\",\"type\":\"string\"},{\"internalType\":\"bool\",\"name\":\"_isDeepLink\",\"type\":\"bool\"}],\"name\":\"getMachineInfoTotal\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"machineOwner\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"calcPoint\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"cpuRate\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"gpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"cpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuCount\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"machineId\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"longitude\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"latitude\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"machineMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"region\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"model\",\"type\":\"string\"}],\"internalType\":\"structMachineInfos.MachineInfo\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"_id\",\"type\":\"string\"}],\"name\":\"getMachineRegion\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"initialize\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"name\":\"machineInfos\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"machineOwner\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"calcPoint\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"cpuRate\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"gpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"cpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuCount\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"machineId\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"longitude\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"latitude\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"machineMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"region\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"model\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"name\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"nonces\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"operators\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"renounceOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"_Id\",\"type\":\"string\"},{\"components\":[{\"internalType\":\"address\",\"name\":\"machineOwner\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"calcPoint\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"cpuRate\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"gpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"cpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuCount\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"machineId\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"longitude\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"latitude\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"machineMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"region\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"model\",\"type\":\"string\"}],\"internalType\":\"structMachineInfos.MachineInfo\",\"name\":\"_info\",\"type\":\"tuple\"}],\"name\":\"setMachineInfo\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"transferOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_ope\",\"type\":\"address\"},{\"internalType\":\"bool\",\"name\":\"_bool\",\"type\":\"bool\"}],\"name\":\"updateOperator\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_signer\",\"type\":\"address\"},{\"internalType\":\"uint8\",\"name\":\"v\",\"type\":\"uint8\"},{\"internalType\":\"bytes32\",\"name\":\"r\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"s\",\"type\":\"bytes32\"},{\"internalType\":\"uint256\",\"name\":\"deadline\",\"type\":\"uint256\"}],\"name\":\"verify\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"version\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
+	ABI: "[{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint8\",\"name\":\"version\",\"type\":\"uint8\"}],\"name\":\"Initialized\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"OwnershipTransferred\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"DOMAIN_TYPEHASH\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"VERIFY_TYPEHASH\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"_id\",\"type\":\"string\"},{\"internalType\":\"bool\",\"name\":\"_isDeepLink\",\"type\":\"bool\"}],\"name\":\"getMachineInfo\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"machineOwner\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"calcPoint\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"cpuRate\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"gpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"cpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuCount\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"machineId\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"longitude\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"latitude\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"machineMem\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"_id\",\"type\":\"string\"},{\"internalType\":\"bool\",\"name\":\"_isDeepLink\",\"type\":\"bool\"}],\"name\":\"getMachineInfoTotal\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"machineOwner\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"calcPoint\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"cpuRate\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"gpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"cpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuCount\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"machineId\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"longitude\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"latitude\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"machineMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"region\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"model\",\"type\":\"string\"}],\"internalType\":\"structMachineInfos.MachineInfo\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"_id\",\"type\":\"string\"}],\"name\":\"getMachineRegion\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"initialize\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"name\":\"machineBandWidthInfos\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"machineOwner\",\"type\":\"address\"},{\"internalType\":\"string\",\"name\":\"machineId\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"cpuCores\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"machineMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"region\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"hdd\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"bandwidth\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"name\":\"machineInfos\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"machineOwner\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"calcPoint\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"cpuRate\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"gpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"cpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuCount\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"machineId\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"longitude\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"latitude\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"machineMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"region\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"model\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"name\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"nonces\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"operators\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"renounceOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"_id\",\"type\":\"string\"},{\"components\":[{\"internalType\":\"address\",\"name\":\"machineOwner\",\"type\":\"address\"},{\"internalType\":\"string\",\"name\":\"machineId\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"cpuCores\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"machineMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"region\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"hdd\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"bandwidth\",\"type\":\"uint256\"}],\"internalType\":\"structMachineInfos.BandWidthMintInfo\",\"name\":\"_info\",\"type\":\"tuple\"}],\"name\":\"setBandWidthInfos\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"_Id\",\"type\":\"string\"},{\"components\":[{\"internalType\":\"address\",\"name\":\"machineOwner\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"calcPoint\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"cpuRate\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"gpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"cpuType\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"gpuCount\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"machineId\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"longitude\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"latitude\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"machineMem\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"region\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"model\",\"type\":\"string\"}],\"internalType\":\"structMachineInfos.MachineInfo\",\"name\":\"_info\",\"type\":\"tuple\"}],\"name\":\"setMachineInfo\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"transferOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_ope\",\"type\":\"address\"},{\"internalType\":\"bool\",\"name\":\"_bool\",\"type\":\"bool\"}],\"name\":\"updateOperator\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_signer\",\"type\":\"address\"},{\"internalType\":\"uint8\",\"name\":\"v\",\"type\":\"uint8\"},{\"internalType\":\"bytes32\",\"name\":\"r\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"s\",\"type\":\"bytes32\"},{\"internalType\":\"uint256\",\"name\":\"deadline\",\"type\":\"uint256\"}],\"name\":\"verify\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"version\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
 }
 
 // MachineinfosABI is the input ABI used to generate the binding from.
@@ -261,42 +272,91 @@ func (_Machineinfos *MachineinfosCallerSession) VERIFYTYPEHASH() ([32]byte, erro
 
 // GetMachineInfo is a free data retrieval call binding the contract method 0xc8ffe871.
 //
-// Solidity: function getMachineInfo(string _id, bool _isDeepLink) view returns(address, uint256, uint256, string, uint256, string, uint256, string, string, string, uint256)
-func (_Machineinfos *MachineinfosCaller) GetMachineInfo(opts *bind.CallOpts, _id string, _isDeepLink bool) (common.Address, *big.Int, *big.Int, string, *big.Int, string, *big.Int, string, string, string, *big.Int, error) {
+// Solidity: function getMachineInfo(string _id, bool _isDeepLink) view returns(address machineOwner, uint256 calcPoint, uint256 cpuRate, string gpuType, uint256 gpuMem, string cpuType, uint256 gpuCount, string machineId, string longitude, string latitude, uint256 machineMem)
+func (_Machineinfos *MachineinfosCaller) GetMachineInfo(opts *bind.CallOpts, _id string, _isDeepLink bool) (struct {
+	MachineOwner common.Address
+	CalcPoint    *big.Int
+	CpuRate      *big.Int
+	GpuType      string
+	GpuMem       *big.Int
+	CpuType      string
+	GpuCount     *big.Int
+	MachineId    string
+	Longitude    string
+	Latitude     string
+	MachineMem   *big.Int
+}, error) {
 	var out []interface{}
 	err := _Machineinfos.contract.Call(opts, &out, "getMachineInfo", _id, _isDeepLink)
 
+	outstruct := new(struct {
+		MachineOwner common.Address
+		CalcPoint    *big.Int
+		CpuRate      *big.Int
+		GpuType      string
+		GpuMem       *big.Int
+		CpuType      string
+		GpuCount     *big.Int
+		MachineId    string
+		Longitude    string
+		Latitude     string
+		MachineMem   *big.Int
+	})
 	if err != nil {
-		return *new(common.Address), *new(*big.Int), *new(*big.Int), *new(string), *new(*big.Int), *new(string), *new(*big.Int), *new(string), *new(string), *new(string), *new(*big.Int), err
+		return *outstruct, err
 	}
 
-	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
-	out1 := *abi.ConvertType(out[1], new(*big.Int)).(**big.Int)
-	out2 := *abi.ConvertType(out[2], new(*big.Int)).(**big.Int)
-	out3 := *abi.ConvertType(out[3], new(string)).(*string)
-	out4 := *abi.ConvertType(out[4], new(*big.Int)).(**big.Int)
-	out5 := *abi.ConvertType(out[5], new(string)).(*string)
-	out6 := *abi.ConvertType(out[6], new(*big.Int)).(**big.Int)
-	out7 := *abi.ConvertType(out[7], new(string)).(*string)
-	out8 := *abi.ConvertType(out[8], new(string)).(*string)
-	out9 := *abi.ConvertType(out[9], new(string)).(*string)
-	out10 := *abi.ConvertType(out[10], new(*big.Int)).(**big.Int)
+	outstruct.MachineOwner = *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+	outstruct.CalcPoint = *abi.ConvertType(out[1], new(*big.Int)).(**big.Int)
+	outstruct.CpuRate = *abi.ConvertType(out[2], new(*big.Int)).(**big.Int)
+	outstruct.GpuType = *abi.ConvertType(out[3], new(string)).(*string)
+	outstruct.GpuMem = *abi.ConvertType(out[4], new(*big.Int)).(**big.Int)
+	outstruct.CpuType = *abi.ConvertType(out[5], new(string)).(*string)
+	outstruct.GpuCount = *abi.ConvertType(out[6], new(*big.Int)).(**big.Int)
+	outstruct.MachineId = *abi.ConvertType(out[7], new(string)).(*string)
+	outstruct.Longitude = *abi.ConvertType(out[8], new(string)).(*string)
+	outstruct.Latitude = *abi.ConvertType(out[9], new(string)).(*string)
+	outstruct.MachineMem = *abi.ConvertType(out[10], new(*big.Int)).(**big.Int)
 
-	return out0, out1, out2, out3, out4, out5, out6, out7, out8, out9, out10, err
+	return *outstruct, err
 
 }
 
 // GetMachineInfo is a free data retrieval call binding the contract method 0xc8ffe871.
 //
-// Solidity: function getMachineInfo(string _id, bool _isDeepLink) view returns(address, uint256, uint256, string, uint256, string, uint256, string, string, string, uint256)
-func (_Machineinfos *MachineinfosSession) GetMachineInfo(_id string, _isDeepLink bool) (common.Address, *big.Int, *big.Int, string, *big.Int, string, *big.Int, string, string, string, *big.Int, error) {
+// Solidity: function getMachineInfo(string _id, bool _isDeepLink) view returns(address machineOwner, uint256 calcPoint, uint256 cpuRate, string gpuType, uint256 gpuMem, string cpuType, uint256 gpuCount, string machineId, string longitude, string latitude, uint256 machineMem)
+func (_Machineinfos *MachineinfosSession) GetMachineInfo(_id string, _isDeepLink bool) (struct {
+	MachineOwner common.Address
+	CalcPoint    *big.Int
+	CpuRate      *big.Int
+	GpuType      string
+	GpuMem       *big.Int
+	CpuType      string
+	GpuCount     *big.Int
+	MachineId    string
+	Longitude    string
+	Latitude     string
+	MachineMem   *big.Int
+}, error) {
 	return _Machineinfos.Contract.GetMachineInfo(&_Machineinfos.CallOpts, _id, _isDeepLink)
 }
 
 // GetMachineInfo is a free data retrieval call binding the contract method 0xc8ffe871.
 //
-// Solidity: function getMachineInfo(string _id, bool _isDeepLink) view returns(address, uint256, uint256, string, uint256, string, uint256, string, string, string, uint256)
-func (_Machineinfos *MachineinfosCallerSession) GetMachineInfo(_id string, _isDeepLink bool) (common.Address, *big.Int, *big.Int, string, *big.Int, string, *big.Int, string, string, string, *big.Int, error) {
+// Solidity: function getMachineInfo(string _id, bool _isDeepLink) view returns(address machineOwner, uint256 calcPoint, uint256 cpuRate, string gpuType, uint256 gpuMem, string cpuType, uint256 gpuCount, string machineId, string longitude, string latitude, uint256 machineMem)
+func (_Machineinfos *MachineinfosCallerSession) GetMachineInfo(_id string, _isDeepLink bool) (struct {
+	MachineOwner common.Address
+	CalcPoint    *big.Int
+	CpuRate      *big.Int
+	GpuType      string
+	GpuMem       *big.Int
+	CpuType      string
+	GpuCount     *big.Int
+	MachineId    string
+	Longitude    string
+	Latitude     string
+	MachineMem   *big.Int
+}, error) {
 	return _Machineinfos.Contract.GetMachineInfo(&_Machineinfos.CallOpts, _id, _isDeepLink)
 }
 
@@ -360,6 +420,76 @@ func (_Machineinfos *MachineinfosSession) GetMachineRegion(_id string) (string, 
 // Solidity: function getMachineRegion(string _id) view returns(string)
 func (_Machineinfos *MachineinfosCallerSession) GetMachineRegion(_id string) (string, error) {
 	return _Machineinfos.Contract.GetMachineRegion(&_Machineinfos.CallOpts, _id)
+}
+
+// MachineBandWidthInfos is a free data retrieval call binding the contract method 0x042f2acf.
+//
+// Solidity: function machineBandWidthInfos(string ) view returns(address machineOwner, string machineId, uint256 cpuCores, uint256 machineMem, string region, uint256 hdd, uint256 bandwidth)
+func (_Machineinfos *MachineinfosCaller) MachineBandWidthInfos(opts *bind.CallOpts, arg0 string) (struct {
+	MachineOwner common.Address
+	MachineId    string
+	CpuCores     *big.Int
+	MachineMem   *big.Int
+	Region       string
+	Hdd          *big.Int
+	Bandwidth    *big.Int
+}, error) {
+	var out []interface{}
+	err := _Machineinfos.contract.Call(opts, &out, "machineBandWidthInfos", arg0)
+
+	outstruct := new(struct {
+		MachineOwner common.Address
+		MachineId    string
+		CpuCores     *big.Int
+		MachineMem   *big.Int
+		Region       string
+		Hdd          *big.Int
+		Bandwidth    *big.Int
+	})
+	if err != nil {
+		return *outstruct, err
+	}
+
+	outstruct.MachineOwner = *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+	outstruct.MachineId = *abi.ConvertType(out[1], new(string)).(*string)
+	outstruct.CpuCores = *abi.ConvertType(out[2], new(*big.Int)).(**big.Int)
+	outstruct.MachineMem = *abi.ConvertType(out[3], new(*big.Int)).(**big.Int)
+	outstruct.Region = *abi.ConvertType(out[4], new(string)).(*string)
+	outstruct.Hdd = *abi.ConvertType(out[5], new(*big.Int)).(**big.Int)
+	outstruct.Bandwidth = *abi.ConvertType(out[6], new(*big.Int)).(**big.Int)
+
+	return *outstruct, err
+
+}
+
+// MachineBandWidthInfos is a free data retrieval call binding the contract method 0x042f2acf.
+//
+// Solidity: function machineBandWidthInfos(string ) view returns(address machineOwner, string machineId, uint256 cpuCores, uint256 machineMem, string region, uint256 hdd, uint256 bandwidth)
+func (_Machineinfos *MachineinfosSession) MachineBandWidthInfos(arg0 string) (struct {
+	MachineOwner common.Address
+	MachineId    string
+	CpuCores     *big.Int
+	MachineMem   *big.Int
+	Region       string
+	Hdd          *big.Int
+	Bandwidth    *big.Int
+}, error) {
+	return _Machineinfos.Contract.MachineBandWidthInfos(&_Machineinfos.CallOpts, arg0)
+}
+
+// MachineBandWidthInfos is a free data retrieval call binding the contract method 0x042f2acf.
+//
+// Solidity: function machineBandWidthInfos(string ) view returns(address machineOwner, string machineId, uint256 cpuCores, uint256 machineMem, string region, uint256 hdd, uint256 bandwidth)
+func (_Machineinfos *MachineinfosCallerSession) MachineBandWidthInfos(arg0 string) (struct {
+	MachineOwner common.Address
+	MachineId    string
+	CpuCores     *big.Int
+	MachineMem   *big.Int
+	Region       string
+	Hdd          *big.Int
+	Bandwidth    *big.Int
+}, error) {
+	return _Machineinfos.Contract.MachineBandWidthInfos(&_Machineinfos.CallOpts, arg0)
 }
 
 // MachineInfos is a free data retrieval call binding the contract method 0xacbab99e.
@@ -657,6 +787,27 @@ func (_Machineinfos *MachineinfosSession) RenounceOwnership() (*types.Transactio
 // Solidity: function renounceOwnership() returns()
 func (_Machineinfos *MachineinfosTransactorSession) RenounceOwnership() (*types.Transaction, error) {
 	return _Machineinfos.Contract.RenounceOwnership(&_Machineinfos.TransactOpts)
+}
+
+// SetBandWidthInfos is a paid mutator transaction binding the contract method 0xca0070f8.
+//
+// Solidity: function setBandWidthInfos(string _id, (address,string,uint256,uint256,string,uint256,uint256) _info) returns()
+func (_Machineinfos *MachineinfosTransactor) SetBandWidthInfos(opts *bind.TransactOpts, _id string, _info MachineInfosBandWidthMintInfo) (*types.Transaction, error) {
+	return _Machineinfos.contract.Transact(opts, "setBandWidthInfos", _id, _info)
+}
+
+// SetBandWidthInfos is a paid mutator transaction binding the contract method 0xca0070f8.
+//
+// Solidity: function setBandWidthInfos(string _id, (address,string,uint256,uint256,string,uint256,uint256) _info) returns()
+func (_Machineinfos *MachineinfosSession) SetBandWidthInfos(_id string, _info MachineInfosBandWidthMintInfo) (*types.Transaction, error) {
+	return _Machineinfos.Contract.SetBandWidthInfos(&_Machineinfos.TransactOpts, _id, _info)
+}
+
+// SetBandWidthInfos is a paid mutator transaction binding the contract method 0xca0070f8.
+//
+// Solidity: function setBandWidthInfos(string _id, (address,string,uint256,uint256,string,uint256,uint256) _info) returns()
+func (_Machineinfos *MachineinfosTransactorSession) SetBandWidthInfos(_id string, _info MachineInfosBandWidthMintInfo) (*types.Transaction, error) {
+	return _Machineinfos.Contract.SetBandWidthInfos(&_Machineinfos.TransactOpts, _id, _info)
 }
 
 // SetMachineInfo is a paid mutator transaction binding the contract method 0xfc17c6f0.

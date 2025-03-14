@@ -49,7 +49,7 @@ func TestWsMachine(t *testing.T) {
 	onlineReq := &types.WsOnlineRequest{
 		MachineKey: types.MachineKey{
 			MachineId:   "123456789",
-			Project:     "DecentralGPT",
+			Project:     "deeplink",
 			ContainerId: "",
 		},
 		StakingType: types.ShortTerm,
@@ -86,11 +86,15 @@ func TestWsMachine(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	reqId++
 
-	machineInfo := &types.WsMachineInfoRequest{
-		GPUNames: []string{"NVIDIA RTX A5000"},
+	machineInfo := &types.DeepLinkMachineInfoST{
+		CpuType:        "13th Gen Intel(R) Core(TM) i5-13400F",
+		CpuRate:        2500,
+		GPUNames:       []string{"VIDIA GeForce RTX 4060"},
+		GPUMemoryTotal: []int32{8},
 		// UtilizationGPU: 30,
 		MemoryTotal: 24564,
 		// MemoryUsed:     22128,
+		Wallet: "0x109dd702f055f6752afffb3247ba18d843fab713",
 	}
 	// machineInfo.Models = append(machineInfo.Models, types.ModelInfo{
 	// 	Model: "Codestral-22B-v0.1",
@@ -104,7 +108,7 @@ func TestWsMachine(t *testing.T) {
 			Version:   0,
 			Timestamp: time.Now().UnixMilli(),
 			Id:        reqId,
-			Type:      uint32(types.WsMtMachineInfo),
+			Type:      uint32(types.WsMtDeepLinkMachineInfoST),
 			PubKey:    []byte(""),
 			Sign:      []byte(""),
 		},
@@ -119,7 +123,7 @@ func TestWsMachine(t *testing.T) {
 	}
 
 	miRes := <-resChan
-	if miRes.Type == uint32(types.WsMtMachineInfo) {
+	if miRes.Type == uint32(types.WsMtDeepLinkMachineInfoST) {
 		t.Log("received machine info response", miRes.Code, miRes.Message)
 	}
 

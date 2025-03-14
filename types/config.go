@@ -23,11 +23,11 @@ type Prometheus struct {
 type ContractConfig struct {
 	AbiFile         string `json:"AbiFile"`
 	ContractAddress string `json:"ContractAddress"`
-	ChainId         int64  `json:"ChainId"`
 }
 
 type ChainConfig struct {
 	Rpc                 string         `json:"Rpc"`
+	ChainId             int64          `json:"ChainId"`
 	PrivateKey          string         `json:"PrivateKey"`
 	ReportContract      ContractConfig `json:"ReportContract"`
 	MachineInfoContract ContractConfig `json:"MachineInfoContract"`

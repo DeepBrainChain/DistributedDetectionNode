@@ -50,16 +50,15 @@ Create a JSON configuration file, as shown below:
   },
   "Chain": {
     "Rpc": "https://rpc-testnet.dbcwallet.io",
+    "ChainId": 19850818,
     "PrivateKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "ReportContract": {
       "AbiFile": "./dbc/ai_abi.json",
-      "ContractAddress": "0xb616A0dad9af4cA23234b65D27176be2c09c720c",
-      "ChainId": 19850818
+      "ContractAddress": "0xb616A0dad9af4cA23234b65D27176be2c09c720c"
     },
     "MachineInfoContract": {
       "AbiFile": "./dbc/0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0.json",
-      "ContractAddress": "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0",
-      "ChainId": 19850818
+      "ContractAddress": "0xE676096cA8B957e914094c5e044Fcf99f5dbf3C0"
     }
   },
   "NotifyThirdParty": {
@@ -141,22 +140,42 @@ The message body currently has the following types:
 - 1 - Online, indicating that the WebSocket connection belongs to that device or node.
 ```json
 {
-  "node_id": "123456789"
+  "machine_id": "123456789",
+  "project": "deeplink",
+  "staking_type": 0
 }
 ```
-- 2 - Device information, model and graphics card usage information sent at regular intervals.
+- 2 - DeepLink short-term rental equipment information, regularly send graphics card and other machine information.
 ```json
 {
-  "project": "DecentralGPT",
-  "models": [
-    {
-      "model": "Codestral-22B-v0.1"
-    }
+  "cpu_type": "13th Gen Intel(R) Core(TM) i5-13400F",
+  "cpu_rate": 2500,
+  "gpu_names": [
+    "NVIDIA GeForce RTX 4060"
   ],
-  "gpu_name": "NVIDIA RTX A5000",
-  "utilization_gpu": 30,
-  "memory_total": 24564,
-  "memory_used": 22128
+  "gpu_memory_total": [
+    8
+  ],
+  "memory_total": 16,
+  "wallet": "xxxxxx"
+}
+```
+- 3 - Notify message.
+```json
+{
+  "unregister": {
+    "message": "machine unregistered, notify from node server"
+  }
+}
+```
+- 4 - DeepLink bandwidth mining equipment information.
+```json
+{
+  "cpu_cores": 1,
+  "memory_total": 2,
+  "hdd": 50,
+  "bandwidth": 10,
+  "wallet": "xxxxxx"
 }
 ```
 

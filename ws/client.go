@@ -284,6 +284,8 @@ func (c *Client) handleRequest(ctx context.Context, req *types.WsRequest) {
 		code, message, body = c.handleOnlineRequest(ctx, req)
 	case uint32(types.WsMtDeepLinkMachineInfoST):
 		code, message, body = c.handleDeepLinkMachineInfoSTRequest(ctx, req)
+	case uint32(types.WsMtDeepLinkMachineInfoBW):
+		code, message, body = c.handleDeepLinkMachineInfoBandwidthRequest(ctx, req)
 	default:
 		code = uint32(types.ErrCodeParam)
 		message = "unknowned request message type"
@@ -372,6 +374,10 @@ func (c *Client) handleDeepLinkMachineInfoSTRequest(ctx context.Context, req *ty
 	if err := json.Unmarshal(req.Body, &miReq); err != nil {
 		return uint32(types.ErrCodeParam), fmt.Sprintf("parse machine info request failed: %v", err), []byte("")
 	}
+
+	if err := miReq.Validate(); err != nil {
+		return uint32(types.ErrCodeParam), err.Error(), []byte("")
+	}
 	miReq.ClientIP = c.ClientIP
 
 	ctx, cancel := context.WithTimeout(ctx, 80*time.Second)
@@ -428,6 +434,7 @@ func (c *Client) handleDeepLinkMachineInfoSTRequest(ctx context.Context, req *ty
 				int64(calcPoint*10000),
 				loc.Longitude,
 				loc.Latitude,
+				loc.Region,
 			); err != nil {
 				errMsg := fmt.Sprintf(
 					"set machine info in chain contract with hash %v failed: %v",
@@ -449,7 +456,9 @@ func (c *Client) handleDeepLinkMachineInfoSTRequest(ctx context.Context, req *ty
 						CalcPoint:             calcPoint,
 						Longitude:             loc.Longitude,
 						Latitude:              loc.Latitude,
+						Region:                loc.Region,
 					},
+					nil,
 				); err != nil {
 					return uint32(types.ErrCodeDbcChain), fmt.Sprintf("set machine info in database failed %v", err), []byte("")
 				} else {
@@ -470,9 +479,105 @@ func (c *Client) handleDeepLinkMachineInfoSTRequest(ctx context.Context, req *ty
 	if err := db.MDB.AddMachineTM(
 		ctx,
 		types.MDBMachineTM{
-			Timestamp:             time.UnixMilli(req.Timestamp),
-			Machine:               c.MachineKey,
-			DeepLinkMachineInfoST: miReq,
+			Timestamp:                    time.UnixMilli(req.Timestamp),
+			Machine:                      c.MachineKey,
+			DeepLinkMachineInfoST:        miReq,
+			DeepLinkMachineInfoBandwidth: types.DeepLinkMachineInfoBandwidth{},
+		},
+	); err != nil {
+		return uint32(types.ErrCodeDatabase), fmt.Sprintf("add machine tm in database failed %v", err), []byte("")
+	}
+
+	// pm.SetMetrics(nodeId, miReq)
+	return 0, "add machine tm success", []byte("")
+}
+
+func (c *Client) handleDeepLinkMachineInfoBandwidthRequest(ctx context.Context, req *types.WsRequest) (uint32, string, []byte) {
+	if c.MachineKey.MachineId == "" {
+		return uint32(types.ErrCodeMachineInfo), "machine id is empty, need send online request first", []byte("")
+	}
+
+	miReq := types.DeepLinkMachineInfoBandwidth{}
+	if err := json.Unmarshal(req.Body, &miReq); err != nil {
+		return uint32(types.ErrCodeParam), fmt.Sprintf("parse machine info bandwidth request failed: %v", err), []byte("")
+	}
+
+	if err := miReq.Validate(); err != nil {
+		return uint32(types.ErrCodeParam), err.Error(), []byte("")
+	}
+	miReq.ClientIP = c.ClientIP
+
+	ctx, cancel := context.WithTimeout(ctx, 80*time.Second)
+	defer cancel()
+	mi, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
+	if err != nil {
+		return uint32(types.ErrCodeDatabase), fmt.Sprintf("get machine info bandwidth from database failed: %v", err), []byte("")
+	} else if mi.MDBDeepLinkMachineInfoBandwidth.Bandwidth == 0 {
+		loc, err := db.GetPositionOfIP(c.ClientIP)
+		if err != nil {
+			log.Log.WithFields(logrus.Fields{
+				"uuid":    c.ClientID,
+				"machine": c.MachineKey,
+			}).Errorf("get location err %v from ip address %v", err, c.ClientIP)
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"uuid":    c.ClientID,
+				"machine": c.MachineKey,
+			}).Infof("get location (%f, %f) from ip address %v", loc.Longitude, loc.Latitude, c.ClientIP)
+		}
+
+		if hash, err := dbc.DbcChain.SetDeepLinkMachineInfoBandwidth(
+			ctx,
+			c.MachineKey,
+			miReq,
+			loc.Region,
+		); err != nil {
+			errMsg := fmt.Sprintf(
+				"set machine info bandwidth in chain contract with hash %v failed: %v",
+				hash,
+				err,
+			)
+			return uint32(types.ErrCodeDbcChain), errMsg, []byte("")
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"uuid":    c.ClientID,
+				"machine": c.MachineKey,
+			}).Info("set machine info bandwidth in chain contract success with hash ", hash)
+
+			if err := db.MDB.SetMachineInfo(
+				ctx,
+				c.MachineKey,
+				nil,
+				&types.MDBDeepLinkMachineInfoBandwidth{
+					DeepLinkMachineInfoBandwidth: miReq,
+					Region:                       loc.Region,
+				},
+			); err != nil {
+				return uint32(types.ErrCodeDbcChain), fmt.Sprintf("set machine info bandwidth in database failed %v", err), []byte("")
+			} else {
+				log.Log.WithFields(logrus.Fields{
+					"uuid":    c.ClientID,
+					"machine": c.MachineKey,
+				}).Info("set machine info bandwidth in database success")
+			}
+		}
+	} else {
+		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
+			"machine": c.MachineKey,
+		}).WithField("machine info", miReq).Info(
+			"get machine info bandwidth success and bandwidth ",
+			mi.MDBDeepLinkMachineInfoBandwidth.Bandwidth,
+		)
+	}
+
+	if err := db.MDB.AddMachineTM(
+		ctx,
+		types.MDBMachineTM{
+			Timestamp:                    time.UnixMilli(req.Timestamp),
+			Machine:                      c.MachineKey,
+			DeepLinkMachineInfoST:        types.DeepLinkMachineInfoST{},
+			DeepLinkMachineInfoBandwidth: miReq,
 		},
 	); err != nil {
 		return uint32(types.ErrCodeDatabase), fmt.Sprintf("add machine tm in database failed %v", err), []byte("")
