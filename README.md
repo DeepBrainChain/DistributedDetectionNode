@@ -24,8 +24,8 @@ docker run --name mongodb -p 27017:27017 -d mongodb/mongodb-community-server:7.0
 ## Build
 
 ```shell
-go build -ldflags "-X main.version=v0.1.5" -o ddn main.go
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=v0.1.5" -o ddn main.go
+go build -ldflags "-X main.version=v0.0.1" -o ddn ./app/ddn/ddn.go
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=v0.0.1" -o ddn ./app/ddn/ddn.go
 ```
 
 ## Run
