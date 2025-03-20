@@ -11,6 +11,8 @@ require (
 	github.com/ip2location/ip2location-go/v9 v9.7.1
 	github.com/prometheus/client_golang v1.20.2
 	github.com/prometheus/common v0.55.0
+	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible
+	github.com/showwin/speedtest-go v1.7.10
 	github.com/sirupsen/logrus v1.9.3
 	go.mongodb.org/mongo-driver v1.16.1
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -57,7 +59,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/supranational/blst v0.3.13 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
