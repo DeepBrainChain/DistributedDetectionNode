@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
+	aireport "DistributedDetectionNode/dbc/ai-report"
 	machineinfos "DistributedDetectionNode/dbc/machine-infos"
 	mt "DistributedDetectionNode/types"
 )
@@ -162,6 +163,26 @@ func (chain *dbcChain) Report(
 		return signedTx.Hash().Hex(), fmt.Errorf("failed to send transaction: %v", err)
 	}
 	return signedTx.Hash().Hex(), nil
+}
+
+func (chain *dbcChain) GetMachineState(
+	ctx context.Context,
+	projectName, machineId string,
+	stakingType mt.StakingType,
+) (bool, bool, error) {
+	// Connect to Ethereum node
+	client, err := ethclient.Dial(chain.rpc)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to connect to the Ethereum client: %v", err)
+	}
+
+	instance, err := aireport.NewAireport(chain.report.contractAddress, client)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to new aireport instance: %v", err)
+	}
+
+	ms, err := instance.GetMachineState(nil, machineId, projectName, uint8(stakingType))
+	return ms.IsOnline, ms.IsRegistered, err
 }
 
 func (chain *dbcChain) SetDeepLinkMachineInfoST(

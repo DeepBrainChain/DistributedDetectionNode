@@ -129,7 +129,7 @@ func TestDbcContract(t *testing.T) {
 	fmt.Printf("Transaction sent: %s", signedTx.Hash().Hex())
 }
 
-// go test -v -timeout 60s -count=1 -run TestContractReport DistributedDetectionNode/dbc
+// go test -v -timeout 120s -count=1 -run TestContractReport DistributedDetectionNode/dbc
 func TestContractReport(t *testing.T) {
 	ctx := context.Background()
 	var cancel context.CancelFunc
@@ -154,6 +154,9 @@ func TestContractReport(t *testing.T) {
 		log.Fatalf("Failed to init dbc chain: %v", err)
 	}
 
+	isOnline, isRegistered, err := DbcChain.GetMachineState(ctx, "deeplink", "123456789", mt.ShortTerm)
+	log.Printf("Get machine state {Online: %v, Registered: %v} %v", isOnline, isRegistered, err)
+
 	// hash, err := chain.Report(ctx, mt.MachineUnregister, mt.ShortTerm, "deeplink", "123456789")
 	// if err != nil {
 	// 	log.Fatalf("Unregister machine failed: %v with hash %v", err, hash)
@@ -165,6 +168,9 @@ func TestContractReport(t *testing.T) {
 		log.Fatalf("Register machine failed: %v with hash %v", err, hash)
 	}
 	log.Printf("Register machine success with hash %v", hash)
+
+	isOnline, isRegistered, err = DbcChain.GetMachineState(ctx, "deeplink", "123456789", mt.ShortTerm)
+	log.Printf("Get machine state {Online: %v, Registered: %v} %v", isOnline, isRegistered, err)
 
 	// hash, err = chain.Report(ctx, mt.MachineRegister, mt.ShortTerm, "deeplink", "123456789")
 	// if err != nil {
@@ -178,17 +184,26 @@ func TestContractReport(t *testing.T) {
 	}
 	log.Printf("Online machine success with hash %v", hash)
 
+	isOnline, isRegistered, err = DbcChain.GetMachineState(ctx, "deeplink", "123456789", mt.ShortTerm)
+	log.Printf("Get machine state {Online: %v, Registered: %v} %v", isOnline, isRegistered, err)
+
 	hash, err = DbcChain.Report(ctx, mt.MachineOffline, mt.ShortTerm, "deeplink", "123456789")
 	if err != nil {
 		log.Fatalf("Offline machine failed: %v with hash %v", err, hash)
 	}
 	log.Printf("Offline machine success with hash %v", hash)
 
+	isOnline, isRegistered, err = DbcChain.GetMachineState(ctx, "deeplink", "123456789", mt.ShortTerm)
+	log.Printf("Get machine state {Online: %v, Registered: %v} %v", isOnline, isRegistered, err)
+
 	hash, err = DbcChain.Report(ctx, mt.MachineUnregister, mt.ShortTerm, "deeplink", "123456789")
 	if err != nil {
 		log.Fatalf("Unregister machine failed: %v with hash %v", err, hash)
 	}
 	log.Printf("Unregister machine success with hash %v", hash)
+
+	isOnline, isRegistered, err = DbcChain.GetMachineState(ctx, "deeplink", "123456789", mt.ShortTerm)
+	log.Printf("Get machine state {Online: %v, Registered: %v} %v", isOnline, isRegistered, err)
 }
 
 // go test -v -timeout 30s -count=1 -run TestGetMachineInfo DistributedDetectionNode/dbc

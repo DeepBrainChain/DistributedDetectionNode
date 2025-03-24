@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"DistributedDetectionNode/db"
 	"DistributedDetectionNode/dbc"
@@ -325,29 +327,49 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 		return uint32(types.ErrCodeOnline), "machine has been online, repeated connection", []byte("")
 	}
 
-	_, err := db.MDB.GetMachineInfo(ctx, onlineReq.MachineKey)
+	isOnline, isRegistered, err := dbc.DbcChain.GetMachineState(
+		ctx,
+		onlineReq.Project,
+		onlineReq.MachineId,
+		onlineReq.StakingType,
+	)
 	if err != nil {
+		return uint32(types.ErrCodeOnline), fmt.Sprintf("failed to get machine state %v", err), []byte("")
+	}
+	if !isRegistered {
 		return uint32(types.ErrCodeOnline), "machine not registered", []byte("")
 	}
 
-	if hash, err := dbc.DbcChain.Report(
-		ctx,
-		types.MachineOnline,
-		onlineReq.StakingType,
-		onlineReq.Project,
-		onlineReq.MachineId,
-	); err != nil {
-		errMsg := fmt.Sprintf(
-			"machine online in chain contract failed with hash %v because of %v",
-			hash,
-			err,
-		)
-		return uint32(types.ErrCodeDbcChain), errMsg, []byte("")
-	} else {
-		log.Log.WithFields(logrus.Fields{
-			"uuid":    c.ClientID,
-			"machine": onlineReq,
-		}).Info("machine online in chain contract success with hash ", hash)
+	if _, err := db.MDB.GetMachineInfo(ctx, onlineReq.MachineKey); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			if err := db.MDB.RegisterMachine(ctx, onlineReq.MachineKey, onlineReq.StakingType); err != nil {
+				return uint32(types.ErrCodeOnline), "failed to register machine in mongo", []byte("")
+			}
+		} else {
+			return uint32(types.ErrCodeOnline), "failed to get registered machine info", []byte("")
+		}
+	}
+
+	if !isOnline {
+		if hash, err := dbc.DbcChain.Report(
+			ctx,
+			types.MachineOnline,
+			onlineReq.StakingType,
+			onlineReq.Project,
+			onlineReq.MachineId,
+		); err != nil {
+			errMsg := fmt.Sprintf(
+				"machine online in chain contract failed with hash %v because of %v",
+				hash,
+				err,
+			)
+			return uint32(types.ErrCodeDbcChain), errMsg, []byte("")
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"uuid":    c.ClientID,
+				"machine": onlineReq,
+			}).Info("machine online in chain contract success with hash ", hash)
+		}
 	}
 
 	if err := db.MDB.MachineConnected(ctx, onlineReq.MachineKey); err != nil {
@@ -580,11 +602,11 @@ func (c *Client) handleDeepLinkMachineInfoBandwidthRequest(ctx context.Context, 
 			DeepLinkMachineInfoBandwidth: miReq,
 		},
 	); err != nil {
-		return uint32(types.ErrCodeDatabase), fmt.Sprintf("add machine tm in database failed %v", err), []byte("")
+		return uint32(types.ErrCodeDatabase), fmt.Sprintf("add machine bandwidth tm in database failed %v", err), []byte("")
 	}
 
 	// pm.SetMetrics(nodeId, miReq)
-	return 0, "add machine tm success", []byte("")
+	return 0, "add machine bandwidth tm success", []byte("")
 }
 
 func Ws2(hub *Hub, ctx *gin.Context, wsCtx context.Context) {
