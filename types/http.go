@@ -7,7 +7,8 @@ type BaseHttpResponse struct {
 
 type LocationResponse struct {
 	BaseHttpResponse
-	ClientIP string `json:"client_ip"`
+	ClientIP        string `json:"client_ip"`
+	BandwidthRegion string `json:"bandwidth_region"`
 	// ip2location.IP2Locationrecord
 	CountryShort       string  `json:"country_short"`
 	CountryLong        string  `json:"country_long"`

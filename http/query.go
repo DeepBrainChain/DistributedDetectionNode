@@ -17,7 +17,21 @@ func Location(ctx *gin.Context) {
 	// 	},
 	// 	ClientIP: ctx.ClientIP(),
 	// }
-	loc, err := db.GetPositionOfIP(ctx.ClientIP())
+	ip := ctx.ClientIP()
+	type UserIp struct {
+		Ip string `json:"ip" form:"ip"`
+	}
+	user_ip := UserIp{}
+	if err := ctx.ShouldBindQuery(&user_ip); err != nil {
+		response.Code = int(types.ErrCodeParse)
+		response.Message = types.ErrCodeParse.String()
+		ctx.JSON(http.StatusBadRequest, response)
+		return
+	}
+	if user_ip.Ip != "" {
+		ip = user_ip.Ip
+	}
+	loc, err := db.GetPositionOfIP(ip)
 	if err != nil {
 		// response.Code = int(types.ErrCodeIp2Location)
 		// response.Message = err.Error()
@@ -26,7 +40,7 @@ func Location(ctx *gin.Context) {
 				Code:    int(types.ErrCodeIp2Location),
 				Message: err.Error(),
 			},
-			ClientIP: ctx.ClientIP(),
+			ClientIP: ip,
 		}
 	} else {
 		response = types.LocationResponse{
@@ -34,7 +48,8 @@ func Location(ctx *gin.Context) {
 				Code:    0,
 				Message: "ok",
 			},
-			ClientIP:           ctx.ClientIP(),
+			ClientIP:           ip,
+			BandwidthRegion:    db.GetBandwidthRegion(&loc),
 			CountryShort:       loc.Country_short,
 			CountryLong:        loc.Country_long,
 			Region:             loc.Region,

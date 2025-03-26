@@ -547,12 +547,13 @@ func (c *Client) handleDeepLinkMachineInfoBandwidthRequest(ctx context.Context, 
 				"machine": c.MachineKey,
 			}).Infof("get location (%f, %f) from ip address %v", loc.Longitude, loc.Latitude, c.ClientIP)
 		}
+		region := db.GetBandwidthRegion(&loc)
 
 		if hash, err := dbc.DbcChain.SetDeepLinkMachineInfoBandwidth(
 			ctx,
 			c.MachineKey,
 			miReq,
-			loc.Region,
+			region,
 		); err != nil {
 			errMsg := fmt.Sprintf(
 				"set machine info bandwidth in chain contract with hash %v failed: %v",
@@ -572,7 +573,7 @@ func (c *Client) handleDeepLinkMachineInfoBandwidthRequest(ctx context.Context, 
 				nil,
 				&types.MDBDeepLinkMachineInfoBandwidth{
 					DeepLinkMachineInfoBandwidth: miReq,
-					Region:                       loc.Region,
+					Region:                       region,
 				},
 			); err != nil {
 				return uint32(types.ErrCodeDbcChain), fmt.Sprintf("set machine info bandwidth in database failed %v", err), []byte("")
