@@ -71,6 +71,11 @@ var nvidiaGpuInfoList = []GpuInfo{
 	{
 		Name:        "3060",
 		CudaCore:    3584,
+		MemoryTotal: 8,
+	},
+	{
+		Name:        "3060",
+		CudaCore:    3584,
 		MemoryTotal: 12,
 	},
 	{
@@ -177,6 +182,31 @@ var nvidiaGpuInfoList = []GpuInfo{
 		Name:        "4090 d",
 		CudaCore:    14592,
 		MemoryTotal: 24,
+	},
+	{
+		Name:        "5070",
+		CudaCore:    6144,
+		MemoryTotal: 12,
+	},
+	{
+		Name:        "5070 ti",
+		CudaCore:    8960,
+		MemoryTotal: 16,
+	},
+	{
+		Name:        "5080",
+		CudaCore:    10752,
+		MemoryTotal: 16,
+	},
+	{
+		Name:        "5090",
+		CudaCore:    21760,
+		MemoryTotal: 32,
+	},
+	{
+		Name:        "5090 d",
+		CudaCore:    21760,
+		MemoryTotal: 32,
 	},
 }
 
