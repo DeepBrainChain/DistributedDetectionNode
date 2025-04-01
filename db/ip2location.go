@@ -120,6 +120,16 @@ func GetBandwidthRegion(loc *ip2location.IP2Locationrecord) string {
 		default:
 			return "Other parts of Russia"
 		}
+	case "Korea (the Republic of)":
+		return "South Korea"
+	case "Viet Nam":
+		return "Vietnam"
+	case "Turkiye":
+		return "Turkey"
+	case "United Kingdom of Great Britain and Northern Ireland":
+		return "United Kingdom"
+	case "Netherlands (Kingdom of the)":
+		return "Netherlands"
 	default:
 		return loc.Country_long
 	}

@@ -33,6 +33,9 @@ abigen --abi=machine_infos.json --pkg=machineinfos --out=machine_infos.go
 
 ## 合约改动
 
+### 2025.03.27
+测试用的 report 合约地址换到: 0xBbD93B4D19D1bA99eae2fB7D14cd6711bb77709B
+
 ### 2025.03.07
 在主网上部署升级测试网
 "MachineInfos": "0xefaF6c5980CCf4CAD5c5Ee0D423BbEA66452be79"
