@@ -13,6 +13,7 @@ import (
 	"github.com/shirou/gopsutil/mem"
 	"github.com/showwin/speedtest-go/speedtest"
 	"log"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -24,7 +25,7 @@ import (
 	"DistributedDetectionNode/types"
 )
 
-var addr = flag.String("addr", "13.212.188.162:7801", "websocket service address")
+var addr = flag.String("addr", "health0.deepbrainchain.org", "websocket service address")
 var wallet = flag.String("wallet", "", "EVM wallet address (42 characters)")
 
 const (
@@ -57,9 +58,9 @@ type systemInfo struct {
 }
 
 type Config struct {
-	MachineId  string     `json:"machine_id"`
-	PrivateKey string     `json:"private_key"`
-	SystemInfo systemInfo `json:"system_info"`
+	MachineId  string `json:"machine_id"`
+	PrivateKey string `json:"private_key"`
+	Wallet     string `json:"wallet"`
 }
 
 func GenMachineId() (string, string, error) {
@@ -131,12 +132,11 @@ func loadConfig() (*Config, error) {
 			return nil, err
 		}
 
-		systemInfo := GetSystemStats()
-
+		// 生成新配置时，不包含 system_info
 		config := &Config{
 			MachineId:  publicKeyHex,
 			PrivateKey: privateKeyHex,
-			SystemInfo: systemInfo,
+			Wallet:     "", // 默认钱包为空
 		}
 
 		configBytes, err := json.MarshalIndent(config, "", "  ")
@@ -164,36 +164,12 @@ func loadConfig() (*Config, error) {
 	return &config, nil
 }
 
-func updateSystemInfo(config *Config) {
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			systemInfo := GetSystemStats()
-			config.SystemInfo = systemInfo
-
-			configBytes, err := json.MarshalIndent(config, "", "  ")
-			if err != nil {
-				log.Printf("Error updating config file: %v", err)
-				continue
-			}
-
-			if err := os.WriteFile(configFile, configBytes, 0644); err != nil {
-				log.Printf("Error writing config file: %v", err)
-			}
-		}
-	}
-}
-
 func main() {
 	flag.Parse()
 	log.SetFlags(0)
 
-	// 处理-wallet参数
 	if *wallet != "" {
-		// 验证钱包地址长度是否为42位（包含0x前缀）
+		// 检查钱包地址
 		if len(*wallet) != 42 {
 			log.Fatal("Error: EVM wallet address must be 42 characters long, including '0x' prefix")
 		}
@@ -205,10 +181,17 @@ func main() {
 		}
 
 		// 更新钱包地址
-		config.SystemInfo.Wallet = *wallet
+		config.Wallet = *wallet
+
+		// 确保配置文件中不包含 system_info
+		cleanConfig := &Config{
+			MachineId:  config.MachineId,
+			PrivateKey: config.PrivateKey,
+			Wallet:     config.Wallet,
+		}
 
 		// 保存配置
-		configBytes, err := json.MarshalIndent(config, "", "  ")
+		configBytes, err := json.MarshalIndent(cleanConfig, "", "  ")
 		if err != nil {
 			log.Fatalf("Error marshaling updated config: %v", err)
 		}
@@ -217,6 +200,7 @@ func main() {
 		}
 
 		fmt.Println("Wallet address has been set and saved to config.json")
+		fmt.Println("Your machine id: ", config.MachineId)
 		os.Exit(0)
 	}
 
@@ -225,17 +209,22 @@ func main() {
 		log.Fatalf("Failed to load or create config: %v", err)
 	}
 
-	go updateSystemInfo(config)
-
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	u := url.URL{Scheme: "ws", Host: *addr, Path: "/websocket"}
+	dialer := websocket.Dialer{
+		NetDial: func(network, addr string) (net.Conn, error) {
+			return net.Dial("tcp4", addr)
+		},
+		HandshakeTimeout: 30 * time.Second,
+	}
+
+	u := url.URL{Scheme: "wss", Host: *addr, Path: "/websocket"}
 	log.Printf("connecting to %s", u.String())
 
-	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	c, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatalf("Failed to connect to %s: %v", u.String(), err)
+		log.Fatal("dial error:", err)
 	}
 	defer c.Close()
 
@@ -285,12 +274,13 @@ func main() {
 	// send machine info using go sendMachineInfo(time.Second)
 	sendMachineInfo := func(delay time.Duration) {
 		time.Sleep(delay)
+		systemInfo := GetSystemStats()
 		machineInfo := &types.DeepLinkMachineInfoBandwidth{
-			CpuCores:    config.SystemInfo.CpuCores,
-			MemoryTotal: config.SystemInfo.MemoryTotal,
-			Hdd:         config.SystemInfo.Hdd,
-			Bandwidth:   config.SystemInfo.Bandwidth,
-			Wallet:      config.SystemInfo.Wallet,
+			CpuCores:    systemInfo.CpuCores,
+			MemoryTotal: systemInfo.MemoryTotal,
+			Hdd:         systemInfo.Hdd,
+			Bandwidth:   systemInfo.Bandwidth,
+			Wallet:      config.Wallet,
 		}
 		reqBody, err := json.Marshal(machineInfo)
 		if err != nil {
@@ -386,7 +376,7 @@ func main() {
 		case message, ok := <-writeQueue:
 			c.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				// 通道关闭，发送关闭消息
+				// sen close message
 				c.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
@@ -398,7 +388,6 @@ func main() {
 		case <-interrupt:
 			log.Println("interrupt")
 
-			// 优雅关闭连接
 			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
 				log.Println("write close:", err)
