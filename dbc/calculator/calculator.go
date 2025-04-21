@@ -9,6 +9,7 @@ import (
 /*
  * https://orion.deeplink.cloud/shortterm
  * https://galaxyrace.deepbrainchain.org/rule
+ * https://www.nvidia.cn/geforce/graphics-cards/compare/
  */
 
 type GpuInfo struct {
@@ -182,6 +183,21 @@ var nvidiaGpuInfoList = []GpuInfo{
 		Name:        "4090 d",
 		CudaCore:    14592,
 		MemoryTotal: 24,
+	},
+	{
+		Name:        "5060",
+		CudaCore:    3840,
+		MemoryTotal: 8,
+	},
+	{
+		Name:        "5060 ti",
+		CudaCore:    4608,
+		MemoryTotal: 8,
+	},
+	{
+		Name:        "5060 ti",
+		CudaCore:    4608,
+		MemoryTotal: 16,
 	},
 	{
 		Name:        "5070",
