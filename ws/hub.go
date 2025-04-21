@@ -201,6 +201,7 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 
 		onr := types.OfflineNotifyRequest{
 			MachineId: info.machine.MachineId,
+			IsOnline:  false,
 		}
 		jsonData, err := json.Marshal(onr)
 		if err != nil {
@@ -211,7 +212,7 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 
 		const maxRetries = 3
 		retries := 0
-		for retries < maxRetries {
+		for retries < maxRetries && info.machine.Project == "DeepLink" {
 			resp, err := http.Post(
 				do.notifyApi,
 				"application/json",
@@ -254,4 +255,59 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel2()
 	db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
+}
+
+func (do *delayOffline) SendOnlineNotify(machine types.MachineKey) {
+	onr := types.OfflineNotifyRequest{
+		MachineId: machine.MachineId,
+		IsOnline:  true,
+	}
+	jsonData, err := json.Marshal(onr)
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{
+			"machine": machine,
+		}).Errorf("failed to send online notify request: %v", err)
+	}
+
+	const maxRetries = 3
+	retries := 0
+	for retries < maxRetries && machine.Project == "DeepLink" {
+		resp, err := http.Post(
+			do.notifyApi,
+			"application/json",
+			bytes.NewBuffer(jsonData),
+		)
+		if err != nil || resp.StatusCode != 200 {
+			log.Log.WithFields(logrus.Fields{
+				"machine": machine,
+			}).Errorf("failed to send online notify request %v times: %v", retries, err)
+		} else {
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				log.Log.WithFields(logrus.Fields{
+					"machine": machine,
+				}).Errorf("failed to send online notify request %v times: %v", retries, err)
+			} else {
+				result := types.OfflineNotifyResponse{}
+				if err := json.Unmarshal(body, &result); err != nil {
+					log.Log.WithFields(logrus.Fields{
+						"machine": machine,
+					}).Errorf("failed to send online notify request %v times: %v", retries, err)
+				} else {
+					if result.Code == 1 {
+						log.Log.WithFields(logrus.Fields{
+							"machine": machine,
+						}).Infof("send online notify request success %v %v", result.Success, result.Msg)
+						break
+					} else {
+						log.Log.WithFields(logrus.Fields{
+							"machine": machine,
+						}).Errorf("failed to send online notify request %v times: %v %v", retries, result.Code, result.Msg)
+					}
+				}
+			}
+		}
+		retries++
+	}
 }
