@@ -212,7 +212,7 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 
 		const maxRetries = 3
 		retries := 0
-		for retries < maxRetries && info.machine.Project == "DeepLink" {
+		for retries < maxRetries && info.machine.Project == "DeepLinkEVM" {
 			resp, err := http.Post(
 				do.notifyApi,
 				"application/json",
@@ -271,7 +271,7 @@ func (do *delayOffline) SendOnlineNotify(machine types.MachineKey) {
 
 	const maxRetries = 3
 	retries := 0
-	for retries < maxRetries && machine.Project == "DeepLink" {
+	for retries < maxRetries && machine.Project == "DeepLinkEVM" {
 		resp, err := http.Post(
 			do.notifyApi,
 			"application/json",
