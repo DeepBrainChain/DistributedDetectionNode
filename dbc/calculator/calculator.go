@@ -70,6 +70,11 @@ var nvidiaGpuInfoList = []GpuInfo{
 		MemoryTotal: 8,
 	},
 	{
+		Name:        "3050 ti",
+		CudaCore:    2560,
+		MemoryTotal: 4,
+	},
+	{
 		Name:        "3060",
 		CudaCore:    3584,
 		MemoryTotal: 8,
