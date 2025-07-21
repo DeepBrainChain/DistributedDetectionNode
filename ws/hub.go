@@ -178,94 +178,52 @@ func (do *delayOffline) HandleDelayOffline() {
 func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 	do.wg.Add(1)
 	defer do.wg.Done()
-	ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel1()
-	if hash, err := dbc.DbcChain.Report(
-		ctx1,
-		types.MachineOffline,
-		info.stakingType,
-		info.machine.Project,
-		info.machine.MachineId,
-	); err != nil {
-		log.Log.WithFields(logrus.Fields{
-			"machine": info.machine,
-		}).Errorf(
-			"machine offline in chain contract failed with hash %v because of %v",
-			hash,
-			err,
-		)
-	} else {
-		log.Log.WithFields(logrus.Fields{
-			"machine": info.machine,
-		}).Info("machine offline in chain contract success with hash ", hash)
 
-		onr := types.OfflineNotifyRequest{
-			MachineId: info.machine.MachineId,
-			IsOnline:  false,
-		}
-		jsonData, err := json.Marshal(onr)
-		if err != nil {
+	const maxRetries = 3
+	retries := 0
+	for retries < maxRetries {
+		ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel1()
+		if hash, err := dbc.DbcChain.Report(
+			ctx1,
+			types.MachineOffline,
+			info.stakingType,
+			info.machine.Project,
+			info.machine.MachineId,
+		); err != nil {
 			log.Log.WithFields(logrus.Fields{
 				"machine": info.machine,
-			}).Errorf("failed to send offline notify request: %v", err)
-		}
-
-		const maxRetries = 3
-		retries := 0
-		for retries < maxRetries && info.machine.Project == "DeepLinkEVM" {
-			resp, err := http.Post(
-				do.notifyApi,
-				"application/json",
-				bytes.NewBuffer(jsonData),
+			}).Errorf(
+				"machine offline in chain contract failed with hash %v because of %v",
+				hash,
+				err,
 			)
-			if err != nil || resp.StatusCode != 200 {
-				log.Log.WithFields(logrus.Fields{
-					"machine": info.machine,
-				}).Errorf("failed to send offline notify request %v times: %v", retries, err)
-			} else {
-				defer resp.Body.Close()
-				body, err := io.ReadAll(resp.Body)
-				if err != nil {
-					log.Log.WithFields(logrus.Fields{
-						"machine": info.machine,
-					}).Errorf("failed to send offline notify request %v times: %v", retries, err)
-				} else {
-					result := types.OfflineNotifyResponse{}
-					if err := json.Unmarshal(body, &result); err != nil {
-						log.Log.WithFields(logrus.Fields{
-							"machine": info.machine,
-						}).Errorf("failed to send offline notify request %v times: %v", retries, err)
-					} else {
-						if result.Code == 1 {
-							log.Log.WithFields(logrus.Fields{
-								"machine": info.machine,
-							}).Infof("send offline notify request success %v %v", result.Success, result.Msg)
-							break
-						} else {
-							log.Log.WithFields(logrus.Fields{
-								"machine": info.machine,
-							}).Errorf("failed to send offline notify request %v times: %v %v", retries, result.Code, result.Msg)
-						}
-					}
-				}
-			}
 			retries++
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"machine": info.machine,
+			}).Info("machine offline in chain contract success with hash ", hash)
+
+			do.SendOnlineNotify(info.machine, false)
+			break
 		}
 	}
+
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel2()
 	db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
 }
 
-func (do *delayOffline) SendOnlineNotify(machine types.MachineKey) {
+func (do *delayOffline) SendOnlineNotify(machine types.MachineKey, isOnline bool) {
 	onr := types.OfflineNotifyRequest{
 		MachineId: machine.MachineId,
-		IsOnline:  true,
+		IsOnline:  isOnline,
 	}
 	jsonData, err := json.Marshal(onr)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{
 			"machine": machine,
+			"online":  isOnline,
 		}).Errorf("failed to send online notify request: %v", err)
 	}
 
@@ -280,6 +238,7 @@ func (do *delayOffline) SendOnlineNotify(machine types.MachineKey) {
 		if err != nil || resp.StatusCode != 200 {
 			log.Log.WithFields(logrus.Fields{
 				"machine": machine,
+				"online":  isOnline,
 			}).Errorf("failed to send online notify request %v times: %v", retries, err)
 		} else {
 			defer resp.Body.Close()
@@ -287,22 +246,26 @@ func (do *delayOffline) SendOnlineNotify(machine types.MachineKey) {
 			if err != nil {
 				log.Log.WithFields(logrus.Fields{
 					"machine": machine,
+					"online":  isOnline,
 				}).Errorf("failed to send online notify request %v times: %v", retries, err)
 			} else {
 				result := types.OfflineNotifyResponse{}
 				if err := json.Unmarshal(body, &result); err != nil {
 					log.Log.WithFields(logrus.Fields{
 						"machine": machine,
+						"online":  isOnline,
 					}).Errorf("failed to send online notify request %v times: %v", retries, err)
 				} else {
 					if result.Code == 1 {
 						log.Log.WithFields(logrus.Fields{
 							"machine": machine,
+							"online":  isOnline,
 						}).Infof("send online notify request success %v %v", result.Success, result.Msg)
 						break
 					} else {
 						log.Log.WithFields(logrus.Fields{
 							"machine": machine,
+							"online":  isOnline,
 						}).Errorf("failed to send online notify request %v times: %v %v", retries, result.Code, result.Msg)
 					}
 				}

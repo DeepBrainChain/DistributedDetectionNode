@@ -369,7 +369,7 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 				"uuid":    c.ClientID,
 				"machine": onlineReq,
 			}).Info("machine online in chain contract success with hash ", hash)
-			go c.hub.do.SendOnlineNotify(onlineReq.MachineKey)
+			go c.hub.do.SendOnlineNotify(onlineReq.MachineKey, true)
 		}
 	}
 
