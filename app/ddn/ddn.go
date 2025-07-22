@@ -7,22 +7,27 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"DistributedDetectionNode/db"
 	"DistributedDetectionNode/dbc"
+	"DistributedDetectionNode/dbc/calculator"
 	hmp "DistributedDetectionNode/http"
 	"DistributedDetectionNode/log"
 	"DistributedDetectionNode/types"
 	"DistributedDetectionNode/ws"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 var version string
+
+var gpusupportfile string = "watch/gpus.json"
 
 var defaultLogFormatter = func(params gin.LogFormatterParams) string {
 	var statusColor, methodColor, resetColor string
@@ -88,6 +93,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := calculator.LoadGpuList(gpusupportfile); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		fmt.Println("Create file watcher failed:", err)
+	}
+	defer watcher.Close()
+
 	wsCtx, wsCancel := context.WithCancel(context.Background())
 	wsHub, err := ws.InitHub(wsCtx, cfg.NotifyThirdParty.OfflineNotify)
 	if err != nil {
@@ -98,6 +113,40 @@ func main() {
 	pm := hmp.NewPrometheusMetrics(cfg.Prometheus.JobName)
 
 	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					log.Log.Warn("watcher event not ok")
+					return
+				}
+				log.Log.Infof("event: %v", event)
+				if event.Has(fsnotify.Write) {
+					log.Log.Infof("modified file: %v", event.Name)
+					if strings.HasSuffix(event.Name, gpusupportfile) {
+						if err := calculator.LoadGpuList(event.Name); err != nil {
+							log.Log.Errorf("gpu support file changed, but %v", err)
+						}
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					log.Log.Warn("watcher error not ok")
+					return
+				}
+				log.Log.Infof("watcher error: %v", err)
+			}
+		}
+	}()
+
+	if err := watcher.Add("watch"); err != nil {
+		fmt.Println("Add watcher failed:", err)
+		os.Exit(1)
+	}
 
 	gin.DefaultWriter = log.Log.Out
 	// router := gin.Default()
@@ -129,6 +178,7 @@ func main() {
 	router.GET("/metrics/prometheus", pm.Metrics)
 	// router.GET("/echo", ws.Echo)
 	router.GET("/api/v0/location", hmp.Location)
+	router.GET("/api/v0/calculator/point", calculator.CalculatePointFromHttp)
 	// for dbc contract
 	c0 := router.Group("/api/v0/contract")
 	{

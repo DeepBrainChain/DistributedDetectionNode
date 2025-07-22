@@ -36,3 +36,8 @@ type LocationResponse struct {
 	Asn                string  `json:"asn"`
 	As                 string  `json:"as"`
 }
+
+type CalculatePointResponse struct {
+	BaseHttpResponse
+	CalcPoint float64 `json:"calc_point"`
+}

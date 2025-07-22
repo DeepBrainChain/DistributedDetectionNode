@@ -1,8 +1,11 @@
 package calculator
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"os"
 	"strings"
 )
 
@@ -10,6 +13,7 @@ import (
  * https://orion.deeplink.cloud/shortterm
  * https://galaxyrace.deepbrainchain.org/rule
  * https://www.nvidia.cn/geforce/graphics-cards/compare/
+ * https://www.nvidia.com/en-us/geforce/graphics-cards/compare/
  */
 
 type GpuInfo struct {
@@ -18,217 +22,23 @@ type GpuInfo struct {
 	MemoryTotal int32
 }
 
-var nvidiaGpuInfoList = []GpuInfo{
-	{
-		Name:        "2060",
-		CudaCore:    1920,
-		MemoryTotal: 6,
-	},
-	{
-		Name:        "2060",
-		CudaCore:    2176,
-		MemoryTotal: 12,
-	},
-	{
-		Name:        "2060 super",
-		CudaCore:    2176,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "2070",
-		CudaCore:    2304,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "2070 super",
-		CudaCore:    2560,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "2080",
-		CudaCore:    2944,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "2080 super",
-		CudaCore:    3072,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "2080 ti",
-		CudaCore:    4352,
-		MemoryTotal: 11,
-	},
-	{
-		Name:        "3050",
-		CudaCore:    2304,
-		MemoryTotal: 6,
-	},
-	{
-		Name:        "3050",
-		CudaCore:    2560,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "3050 ti",
-		CudaCore:    2560,
-		MemoryTotal: 4,
-	},
-	{
-		Name:        "3060",
-		CudaCore:    3584,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "3060",
-		CudaCore:    3584,
-		MemoryTotal: 12,
-	},
-	{
-		Name:        "3060 ti",
-		CudaCore:    4864,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "3070",
-		CudaCore:    5888,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "3070 ti",
-		CudaCore:    6144,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "3080",
-		CudaCore:    8704,
-		MemoryTotal: 10,
-	},
-	{
-		Name:        "3080",
-		CudaCore:    8960,
-		MemoryTotal: 12,
-	},
-	{
-		Name:        "3080 ti",
-		CudaCore:    10240,
-		MemoryTotal: 12,
-	},
-	{
-		Name:        "3090",
-		CudaCore:    10496,
-		MemoryTotal: 24,
-	},
-	{
-		Name:        "3090 ti",
-		CudaCore:    10752,
-		MemoryTotal: 24,
-	},
-	{
-		Name:        "4060",
-		CudaCore:    3072,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "4060 ti",
-		CudaCore:    4352,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "4060 ti",
-		CudaCore:    4352,
-		MemoryTotal: 16,
-	},
-	{
-		Name:        "4070",
-		CudaCore:    5888,
-		MemoryTotal: 12,
-	},
-	{
-		Name:        "4070 super",
-		CudaCore:    7168,
-		MemoryTotal: 12,
-	},
-	{
-		Name:        "4070 ti",
-		CudaCore:    7680,
-		MemoryTotal: 12,
-	},
-	{
-		Name:        "4070 ti super",
-		CudaCore:    8448,
-		MemoryTotal: 16,
-	},
-	{
-		Name:        "4080",
-		CudaCore:    9728,
-		MemoryTotal: 16,
-	},
-	{
-		Name:        "4080 super",
-		CudaCore:    10240,
-		MemoryTotal: 16,
-	},
-	{
-		Name:        "4080 ti",
-		CudaCore:    14080,
-		MemoryTotal: 20,
-	},
-	{
-		Name:        "4090",
-		CudaCore:    16384,
-		MemoryTotal: 24,
-	},
-	{
-		Name:        "4090 ti",
-		CudaCore:    18176,
-		MemoryTotal: 24,
-	},
-	{
-		Name:        "4090 d",
-		CudaCore:    14592,
-		MemoryTotal: 24,
-	},
-	{
-		Name:        "5060",
-		CudaCore:    3840,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "5060 ti",
-		CudaCore:    4608,
-		MemoryTotal: 8,
-	},
-	{
-		Name:        "5060 ti",
-		CudaCore:    4608,
-		MemoryTotal: 16,
-	},
-	{
-		Name:        "5070",
-		CudaCore:    6144,
-		MemoryTotal: 12,
-	},
-	{
-		Name:        "5070 ti",
-		CudaCore:    8960,
-		MemoryTotal: 16,
-	},
-	{
-		Name:        "5080",
-		CudaCore:    10752,
-		MemoryTotal: 16,
-	},
-	{
-		Name:        "5090",
-		CudaCore:    21760,
-		MemoryTotal: 32,
-	},
-	{
-		Name:        "5090 d",
-		CudaCore:    21760,
-		MemoryTotal: 32,
-	},
+var nvidiaGpuInfoList = []GpuInfo{}
+
+func LoadGpuList(filename string) error {
+	jsonData, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("read nvidia gpu support list failed: %v", err)
+	}
+
+	err = json.Unmarshal(jsonData, &nvidiaGpuInfoList)
+	if err != nil {
+		return fmt.Errorf("parse nvidia gpu support list failed: %v", err)
+	}
+
+	if len(nvidiaGpuInfoList) == 0 {
+		return errors.New("empty nvidia gpu support list")
+	}
+	return nil
 }
 
 // gpu model exact match with gpu_memory
