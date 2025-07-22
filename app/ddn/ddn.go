@@ -101,7 +101,7 @@ func main() {
 	if err != nil {
 		fmt.Println("Create file watcher failed:", err)
 	}
-	defer watcher.Close()
+	// defer watcher.Close()
 
 	wsCtx, wsCancel := context.WithCancel(context.Background())
 	wsHub, err := ws.InitHub(wsCtx, cfg.NotifyThirdParty.OfflineNotify)
@@ -257,6 +257,7 @@ func main() {
 		log.Log.Fatal("Server forced to shutdown: ", err)
 	}
 
+	watcher.Close()
 	// ws.ShutdownAllWsConns()
 	wsHub.Close()
 	wg.Wait()
