@@ -105,6 +105,11 @@
         "MemoryTotal": 24
     },
     {
+        "Name": "4050",
+        "CudaCore": 2560,
+        "MemoryTotal": 6
+    },
+    {
         "Name": "4060",
         "CudaCore": 3072,
         "MemoryTotal": 8

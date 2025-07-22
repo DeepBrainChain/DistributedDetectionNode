@@ -37,9 +37,9 @@ func InitLogrus(levelString string, logFile string) error {
 	// Log.SetOutput(io.MultiWriter(w1, w2))
 	Log.SetOutput(&lumberjack.Logger{
 		Filename:   logFile,
-		MaxBackups: 10,
-		MaxAge:     10,
-		MaxSize:    10,
+		MaxBackups: 30,
+		MaxAge:     28,
+		MaxSize:    50,
 		Compress:   true,
 		// LocalTime:  false,
 	})
