@@ -28,6 +28,7 @@ const (
 	WsMtDeepLinkMachineInfoST
 	WsMtNotify
 	WsMtDeepLinkMachineInfoBW
+	WsMtRequestMachineInfo // Type 5: 服务端主动请求客户端发送硬件信息
 )
 
 type WsConnInfo struct {

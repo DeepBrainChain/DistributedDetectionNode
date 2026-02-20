@@ -304,6 +304,25 @@ func (db *mongoDB) OfflineMachine(ctx context.Context, machine types.MachineKey,
 	return nil
 }
 
+// GetMachinesWithoutST 返回已注册但缺少 deeplink_st 硬件信息的机器列表
+func (db *mongoDB) GetMachinesWithoutST(ctx context.Context) ([]types.MDBMachineInfo, error) {
+	filter := bson.M{
+		"$or": []bson.M{
+			{"deeplink_st.calc_point": bson.M{"$exists": false}},
+			{"deeplink_st.calc_point": 0},
+		},
+	}
+	cursor, err := db.machineInfoCollection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	var results []types.MDBMachineInfo
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 func (db *mongoDB) AddMachineTM(ctx context.Context, mtm types.MDBMachineTM) error {
 	result, err := db.machineTMCollection.InsertOne(
 		ctx,

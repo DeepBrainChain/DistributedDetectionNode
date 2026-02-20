@@ -8,6 +8,33 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// IncompleteMachines 返回已注册但缺少 deeplink_st 硬件信息的机器列表
+// GET /api/v0/machines/incomplete
+func IncompleteMachines(ctx *gin.Context) {
+	machines, err := db.MDB.GetMachinesWithoutST(ctx.Request.Context())
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	type incompleteMachine struct {
+		MachineId   string `json:"machine_id"`
+		Project     string `json:"project"`
+		ContainerId string `json:"container_id"`
+	}
+	result := make([]incompleteMachine, 0, len(machines))
+	for _, m := range machines {
+		result = append(result, incompleteMachine{
+			MachineId:   m.MachineId,
+			Project:     m.Project,
+			ContainerId: m.ContainerId,
+		})
+	}
+	ctx.JSON(http.StatusOK, gin.H{
+		"count":    len(result),
+		"machines": result,
+	})
+}
+
 func Location(ctx *gin.Context) {
 	var response types.LocationResponse
 	// response := types.LocationResponse{

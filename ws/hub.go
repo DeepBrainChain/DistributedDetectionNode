@@ -71,8 +71,26 @@ func InitHub(ctx context.Context, napi string) (*Hub, error) {
 		return nil, err
 	}
 	go hub.do.HandleDelayOffline()
+	go hub.runMachineInfoCheck(ctx)
 	hub.open.Store(true)
 	return hub, nil
+}
+
+// runMachineInfoCheck 每 2 分钟检查一次连接中但缺少硬件信息的机器
+func (h *Hub) runMachineInfoCheck(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if h.closed() {
+				return
+			}
+			h.checkMissingMachineInfo(ctx)
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (h *Hub) Close() {
@@ -173,6 +191,48 @@ func (do *delayOffline) HandleDelayOffline() {
 			return
 		}
 	}
+}
+
+// checkMissingMachineInfo 扫描当前连接的客户端，对缺少 deeplink_st 硬件信息的机器
+// 发送 Type 5 (WsMtRequestMachineInfo) 请求，触发客户端重新发送 Type 2 硬件信息
+func (h *Hub) checkMissingMachineInfo(ctx context.Context) {
+	// 批量查询所有缺少 deeplink_st 的机器，避免逐个连接查 DB
+	incompleteMachines, err := db.MDB.GetMachinesWithoutST(ctx)
+	if err != nil {
+		log.Log.Errorf("[MachineInfo] Failed to query incomplete machines: %v", err)
+		return
+	}
+	if len(incompleteMachines) == 0 {
+		return
+	}
+
+	// 构建 machineId → true 的查找表
+	incompleteSet := make(map[string]bool, len(incompleteMachines))
+	for _, m := range incompleteMachines {
+		incompleteSet[m.MachineId] = true
+	}
+
+	// 遍历连接客户端，匹配缺失集合
+	h.wsConns.Range(func(key, value any) bool {
+		client, ok := key.(*Client)
+		if !ok || client.MachineKey.MachineId == "" {
+			return true
+		}
+		if incompleteSet[client.MachineKey.MachineId] {
+			log.Log.WithFields(logrus.Fields{
+				"machine": client.MachineKey,
+			}).Info("[MachineInfo] Requesting hardware info (connected but no deeplink_st)")
+			client.WriteResponse(&types.WsResponse{
+				WsHeader: types.WsHeader{
+					Type:      uint32(types.WsMtRequestMachineInfo),
+					Timestamp: time.Now().Unix(),
+				},
+				Code:    0,
+				Message: "request machine info",
+			})
+		}
+		return true
+	})
 }
 
 func (do *delayOffline) Offline(info delayOfflineChanInfo) {

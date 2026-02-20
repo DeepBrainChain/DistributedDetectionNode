@@ -178,6 +178,7 @@ func main() {
 	router.GET("/metrics/prometheus", pm.Metrics)
 	// router.GET("/echo", ws.Echo)
 	router.GET("/api/v0/location", hmp.Location)
+	router.GET("/api/v0/machines/incomplete", hmp.IncompleteMachines)
 	router.GET("/api/v0/calculator/point", calculator.CalculatePointFromHttp)
 	// for dbc contract
 	c0 := router.Group("/api/v0/contract")
