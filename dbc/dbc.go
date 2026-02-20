@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -33,6 +34,7 @@ type dbcChain struct {
 	privateKey   *ecdsa.PrivateKey
 	report       *chainContract
 	machineInfos *chainContract
+	txSem        chan struct{} // capacity-1 semaphore to serialize all on-chain transactions (prevents nonce conflicts)
 }
 
 func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
@@ -54,6 +56,7 @@ func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
 		privateKey:   privateKey,
 		report:       reportContract,
 		machineInfos: machineInfoContract,
+		txSem:        make(chan struct{}, 1),
 	}
 	return nil
 }
@@ -91,78 +94,75 @@ func initChainContract(ctx context.Context, config mt.ContractConfig, rpc string
 	}, nil
 }
 
+// sendTx serializes all on-chain transaction sends to prevent nonce conflicts.
+// Uses a channel semaphore so callers can cancel queuing via ctx (e.g. shutdown, timeout).
+// After acquiring the semaphore, uses an independent 30s timeout for the RPC calls.
+func (chain *dbcChain) sendTx(ctx context.Context, contract *chainContract, data []byte) (string, error) {
+	// Wait for semaphore, respecting caller's context cancellation
+	select {
+	case chain.txSem <- struct{}{}:
+		defer func() { <-chain.txSem }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+
+	// Independent timeout for RPC calls (queuing time not counted)
+	txCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client, err := ethclient.Dial(chain.rpc)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to the Ethereum client: %v", err)
+	}
+	defer client.Close()
+
+	auth, err := bind.NewKeyedTransactorWithChainID(chain.privateKey, contract.chainId)
+	if err != nil {
+		return "", fmt.Errorf("failed to create transactor: %v", err)
+	}
+
+	publicAddress := crypto.PubkeyToAddress(chain.privateKey.PublicKey)
+
+	gasLimit, err := client.EstimateGas(txCtx, ethereum.CallMsg{
+		From: publicAddress, To: &contract.contractAddress, Gas: 0, Value: big.NewInt(0), Data: data,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to estimate gas limit: %v", err)
+	}
+
+	gasPrice, err := client.SuggestGasPrice(txCtx)
+	if err != nil {
+		return "", fmt.Errorf("failed to suggest gas price: %v", err)
+	}
+
+	nonce, err := client.PendingNonceAt(txCtx, publicAddress)
+	if err != nil {
+		return "", fmt.Errorf("failed to get nonce: %v", err)
+	}
+
+	tx := types.NewTransaction(nonce, contract.contractAddress, big.NewInt(0), gasLimit, gasPrice, data)
+	signedTx, err := auth.Signer(auth.From, tx)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign transaction: %v", err)
+	}
+
+	if err = client.SendTransaction(txCtx, signedTx); err != nil {
+		return signedTx.Hash().Hex(), fmt.Errorf("failed to send transaction: %v", err)
+	}
+	return signedTx.Hash().Hex(), nil
+}
+
 func (chain *dbcChain) Report(
 	ctx context.Context,
 	notifyType mt.NotifyType,
 	stakingType mt.StakingType,
 	projectName, machineId string,
 ) (string, error) {
-	// Connect to Ethereum node
-	client, err := ethclient.Dial(chain.rpc)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect to the Ethereum client: %v", err)
-	}
-
-	// Create an authorized transactor
-	auth, err := bind.NewKeyedTransactorWithChainID(chain.privateKey, chain.report.chainId)
-	if err != nil {
-		return "", fmt.Errorf("failed to create transactor: %v", err)
-	}
-
-	// Define the inputs for the report function
-	// notifyType := uint8(1) // Example: NotifyType.MachineRegister
-	// projectName := "ExampleProject"
-	// stakingType := uint8(0) // Example: StakingType.ShortTerm
-	// machineId := "example-machine-id"
-
-	// Encode the function call
 	data, err := chain.report.abi.Pack("report", notifyType, projectName, stakingType, machineId)
 	if err != nil {
 		return "", fmt.Errorf("failed to pack data: %v", err)
 	}
-
-	publicAddress := crypto.PubkeyToAddress(chain.privateKey.PublicKey)
-
-	// Estimate gas limit
-	callMsg := ethereum.CallMsg{
-		From:  publicAddress,
-		To:    &chain.report.contractAddress,
-		Gas:   0,
-		Value: big.NewInt(0),
-		Data:  data,
-	}
-	gasLimit, err := client.EstimateGas(ctx, callMsg)
-	if err != nil {
-		return "", fmt.Errorf("failed to estimate gas limit: %v", err)
-	}
-
-	// Get the gas price
-	gasPrice, err := client.SuggestGasPrice(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to suggest gas price: %v", err)
-	}
-
-	// Fetch the nonce for the public address
-	nonce, err := client.PendingNonceAt(ctx, publicAddress)
-	if err != nil {
-		return "", fmt.Errorf("failed to get nonce: %v", err)
-	}
-
-	// Create the transaction
-	tx := types.NewTransaction(nonce, chain.report.contractAddress, big.NewInt(0), gasLimit, gasPrice, data)
-
-	// Sign the transaction
-	signedTx, err := auth.Signer(auth.From, tx)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign transaction: %v", err)
-	}
-
-	// Send the transaction
-	err = client.SendTransaction(ctx, signedTx)
-	if err != nil {
-		return signedTx.Hash().Hex(), fmt.Errorf("failed to send transaction: %v", err)
-	}
-	return signedTx.Hash().Hex(), nil
+	return chain.sendTx(ctx, chain.report, data)
 }
 
 func (chain *dbcChain) GetMachineState(
@@ -193,23 +193,6 @@ func (chain *dbcChain) SetDeepLinkMachineInfoST(
 	longitude, latitude float32,
 	region string,
 ) (string, error) {
-	// Connect to Ethereum node
-	client, err := ethclient.Dial(chain.rpc)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect to the Ethereum client: %v", err)
-	}
-
-	// Create an authorized transactor
-	auth, err := bind.NewKeyedTransactorWithChainID(chain.privateKey, chain.machineInfos.chainId)
-	if err != nil {
-		return "", fmt.Errorf("failed to create transactor: %v", err)
-	}
-
-	// Define the inputs for the report function
-	// notifyType := uint8(1) // Example: NotifyType.MachineRegister
-	// projectName := "ExampleProject"
-	// stakingType := uint8(0) // Example: StakingType.ShortTerm
-	// machineId := "example-machine-id"
 	info := machineinfos.MachineInfosMachineInfo{
 		MachineOwner: common.HexToAddress(mi.Wallet),
 		CalcPoint:    big.NewInt(calcPoint),
@@ -226,54 +209,11 @@ func (chain *dbcChain) SetDeepLinkMachineInfoST(
 		Model:        "",
 	}
 
-	// Encode the function call
 	data, err := chain.machineInfos.abi.Pack("setMachineInfo", mk.MachineId, info)
 	if err != nil {
 		return "", fmt.Errorf("failed to pack data: %v", err)
 	}
-
-	publicAddress := crypto.PubkeyToAddress(chain.privateKey.PublicKey)
-
-	// Estimate gas limit
-	callMsg := ethereum.CallMsg{
-		From:  publicAddress,
-		To:    &chain.machineInfos.contractAddress,
-		Gas:   0,
-		Value: big.NewInt(0),
-		Data:  data,
-	}
-	gasLimit, err := client.EstimateGas(ctx, callMsg)
-	if err != nil {
-		return "", fmt.Errorf("failed to estimate gas limit: %v", err)
-	}
-
-	// Get the gas price
-	gasPrice, err := client.SuggestGasPrice(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to suggest gas price: %v", err)
-	}
-
-	// Fetch the nonce for the public address
-	nonce, err := client.PendingNonceAt(ctx, publicAddress)
-	if err != nil {
-		return "", fmt.Errorf("failed to get nonce: %v", err)
-	}
-
-	// Create the transaction
-	tx := types.NewTransaction(nonce, chain.machineInfos.contractAddress, big.NewInt(0), gasLimit, gasPrice, data)
-
-	// Sign the transaction
-	signedTx, err := auth.Signer(auth.From, tx)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign transaction: %v", err)
-	}
-
-	// Send the transaction
-	err = client.SendTransaction(ctx, signedTx)
-	if err != nil {
-		return signedTx.Hash().Hex(), fmt.Errorf("failed to send transaction: %v", err)
-	}
-	return signedTx.Hash().Hex(), nil
+	return chain.sendTx(ctx, chain.machineInfos, data)
 }
 
 func (chain *dbcChain) SetDeepLinkMachineInfoBandwidth(
@@ -282,23 +222,6 @@ func (chain *dbcChain) SetDeepLinkMachineInfoBandwidth(
 	mi mt.DeepLinkMachineInfoBandwidth,
 	region string,
 ) (string, error) {
-	// Connect to Ethereum node
-	client, err := ethclient.Dial(chain.rpc)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect to the Ethereum client: %v", err)
-	}
-
-	// Create an authorized transactor
-	auth, err := bind.NewKeyedTransactorWithChainID(chain.privateKey, chain.machineInfos.chainId)
-	if err != nil {
-		return "", fmt.Errorf("failed to create transactor: %v", err)
-	}
-
-	// Define the inputs for the report function
-	// notifyType := uint8(1) // Example: NotifyType.MachineRegister
-	// projectName := "ExampleProject"
-	// stakingType := uint8(0) // Example: StakingType.ShortTerm
-	// machineId := "example-machine-id"
 	info := machineinfos.MachineInfosBandWidthMintInfo{
 		MachineOwner: common.HexToAddress(mi.Wallet),
 		MachineId:    mk.ContainerId,
@@ -309,52 +232,9 @@ func (chain *dbcChain) SetDeepLinkMachineInfoBandwidth(
 		Bandwidth:    big.NewInt(int64(mi.Bandwidth)),
 	}
 
-	// Encode the function call
 	data, err := chain.machineInfos.abi.Pack("setBandWidthInfos", mk.MachineId, info)
 	if err != nil {
 		return "", fmt.Errorf("failed to pack data: %v", err)
 	}
-
-	publicAddress := crypto.PubkeyToAddress(chain.privateKey.PublicKey)
-
-	// Estimate gas limit
-	callMsg := ethereum.CallMsg{
-		From:  publicAddress,
-		To:    &chain.machineInfos.contractAddress,
-		Gas:   0,
-		Value: big.NewInt(0),
-		Data:  data,
-	}
-	gasLimit, err := client.EstimateGas(ctx, callMsg)
-	if err != nil {
-		return "", fmt.Errorf("failed to estimate gas limit: %v", err)
-	}
-
-	// Get the gas price
-	gasPrice, err := client.SuggestGasPrice(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to suggest gas price: %v", err)
-	}
-
-	// Fetch the nonce for the public address
-	nonce, err := client.PendingNonceAt(ctx, publicAddress)
-	if err != nil {
-		return "", fmt.Errorf("failed to get nonce: %v", err)
-	}
-
-	// Create the transaction
-	tx := types.NewTransaction(nonce, chain.machineInfos.contractAddress, big.NewInt(0), gasLimit, gasPrice, data)
-
-	// Sign the transaction
-	signedTx, err := auth.Signer(auth.From, tx)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign transaction: %v", err)
-	}
-
-	// Send the transaction
-	err = client.SendTransaction(ctx, signedTx)
-	if err != nil {
-		return signedTx.Hash().Hex(), fmt.Errorf("failed to send transaction: %v", err)
-	}
-	return signedTx.Hash().Hex(), nil
+	return chain.sendTx(ctx, chain.machineInfos, data)
 }
