@@ -245,25 +245,31 @@ func TestNextWallet_Overflow(t *testing.T) {
 // === RPC failover tests ===
 
 func TestDialRPC_SingleEndpoint(t *testing.T) {
+	// ethclient.Dial creates a lazy connection — it doesn't fail on invalid addresses.
+	// Verify it returns a non-nil client (connection error happens on first RPC call).
 	chain := &dbcChain{rpcEndpoints: []string{"http://localhost:1"}}
-	// Will fail to connect but should not panic
-	_, err := chain.dialRPC()
-	if err == nil {
-		t.Error("expected error connecting to invalid endpoint")
+	client, err := chain.dialRPC()
+	if err != nil {
+		t.Errorf("Dial should not fail eagerly: %v", err)
+	}
+	if client == nil {
+		t.Error("expected non-nil client")
+	}
+	if client != nil {
+		client.Close()
 	}
 }
 
 func TestDialRPC_RoundRobin(t *testing.T) {
-	// All invalid, but verify it tries multiple endpoints
+	// All endpoints are invalid but Dial succeeds lazily.
+	// Verify dialRPC returns a client without panic.
 	chain := &dbcChain{rpcEndpoints: []string{"http://a:1", "http://b:1", "http://c:1"}}
-
-	_, err := chain.dialRPC()
-	if err == nil {
-		t.Error("expected error")
+	client, err := chain.dialRPC()
+	if err != nil {
+		t.Errorf("Dial should not fail eagerly: %v", err)
 	}
-	// Should contain "all RPC endpoints failed"
-	if err != nil && !contains(err.Error(), "all RPC endpoints failed") {
-		t.Errorf("unexpected error: %v", err)
+	if client != nil {
+		client.Close()
 	}
 }
 
