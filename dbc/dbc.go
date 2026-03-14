@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -29,12 +31,44 @@ type chainContract struct {
 	chainId         *big.Int
 }
 
+// txWallet is an independent wallet with its own nonce tracking for parallel tx sending.
+type txWallet struct {
+	privateKey  *ecdsa.PrivateKey
+	address     common.Address
+	nonceMu     sync.Mutex
+	nextNonce   uint64
+	nonceInited bool
+}
+
+func (w *txWallet) allocateNonce(ctx context.Context, client *ethclient.Client) (uint64, error) {
+	w.nonceMu.Lock()
+	defer w.nonceMu.Unlock()
+	if !w.nonceInited {
+		pending, err := client.PendingNonceAt(ctx, w.address)
+		if err != nil {
+			return 0, err
+		}
+		w.nextNonce = pending
+		w.nonceInited = true
+	}
+	nonce := w.nextNonce
+	w.nextNonce++
+	return nonce, nil
+}
+
+func (w *txWallet) resetNonce() {
+	w.nonceMu.Lock()
+	defer w.nonceMu.Unlock()
+	w.nonceInited = false
+}
+
 type dbcChain struct {
 	rpc          string
-	privateKey   *ecdsa.PrivateKey
+	privateKey   *ecdsa.PrivateKey // legacy single key (used for read-only / signing)
+	wallets      []*txWallet       // wallet pool for parallel transactions
+	walletIdx    atomic.Uint64     // round-robin counter
 	report       *chainContract
 	machineInfos *chainContract
-	txSem        chan struct{} // capacity-1 semaphore to serialize all on-chain transactions (prevents nonce conflicts)
 }
 
 func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
@@ -47,17 +81,32 @@ func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
 		return err
 	}
 
-	privateKey, err := crypto.HexToECDSA(config.PrivateKey)
-	if err != nil {
-		return fmt.Errorf("failed to load private key: %v", err)
+	// Build wallet pool: use PrivateKeys if configured, otherwise single PrivateKey
+	keys := config.PrivateKeys
+	if len(keys) == 0 {
+		keys = []string{config.PrivateKey}
 	}
+
+	var wallets []*txWallet
+	for i, keyHex := range keys {
+		pk, err := crypto.HexToECDSA(keyHex)
+		if err != nil {
+			return fmt.Errorf("failed to load private key #%d: %v", i, err)
+		}
+		addr := crypto.PubkeyToAddress(pk.PublicKey)
+		wallets = append(wallets, &txWallet{privateKey: pk, address: addr})
+		fmt.Printf("[DDN] Wallet #%d: %s\n", i, addr.Hex())
+	}
+
+	primaryKey, _ := crypto.HexToECDSA(keys[0])
 	DbcChain = &dbcChain{
 		rpc:          config.Rpc,
-		privateKey:   privateKey,
+		privateKey:   primaryKey,
+		wallets:      wallets,
 		report:       reportContract,
 		machineInfos: machineInfoContract,
-		txSem:        make(chan struct{}, 1),
 	}
+	fmt.Printf("[DDN] Initialized %d wallet(s) for parallel transactions\n", len(wallets))
 	return nil
 }
 
@@ -94,19 +143,20 @@ func initChainContract(ctx context.Context, config mt.ContractConfig, rpc string
 	}, nil
 }
 
-// sendTx serializes all on-chain transaction sends to prevent nonce conflicts.
-// Uses a channel semaphore so callers can cancel queuing via ctx (e.g. shutdown, timeout).
-// After acquiring the semaphore, uses an independent 30s timeout for the RPC calls.
-func (chain *dbcChain) sendTx(ctx context.Context, contract *chainContract, data []byte) (string, error) {
-	// Wait for semaphore, respecting caller's context cancellation
-	select {
-	case chain.txSem <- struct{}{}:
-		defer func() { <-chain.txSem }()
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
+// nextWallet picks the next wallet from the pool via round-robin.
+func (chain *dbcChain) nextWallet() *txWallet {
+	idx := chain.walletIdx.Add(1) - 1
+	return chain.wallets[idx%uint64(len(chain.wallets))]
+}
 
-	// Independent timeout for RPC calls (queuing time not counted)
+// sendTx sends on-chain transactions using a wallet pool for true parallelism.
+// Each wallet has its own nonce, so multiple wallets can send concurrently
+// without nonce conflicts. Round-robin distributes load evenly.
+func (chain *dbcChain) sendTx(ctx context.Context, contract *chainContract, data []byte) (string, error) {
+	wallet := chain.nextWallet()
+
+	// Use independent context — caller's ctx may have short timeout from queuing.
+	// The 30s timeout is only for the RPC calls themselves.
 	txCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -116,15 +166,13 @@ func (chain *dbcChain) sendTx(ctx context.Context, contract *chainContract, data
 	}
 	defer client.Close()
 
-	auth, err := bind.NewKeyedTransactorWithChainID(chain.privateKey, contract.chainId)
+	auth, err := bind.NewKeyedTransactorWithChainID(wallet.privateKey, contract.chainId)
 	if err != nil {
 		return "", fmt.Errorf("failed to create transactor: %v", err)
 	}
 
-	publicAddress := crypto.PubkeyToAddress(chain.privateKey.PublicKey)
-
 	gasLimit, err := client.EstimateGas(txCtx, ethereum.CallMsg{
-		From: publicAddress, To: &contract.contractAddress, Gas: 0, Value: big.NewInt(0), Data: data,
+		From: wallet.address, To: &contract.contractAddress, Gas: 0, Value: big.NewInt(0), Data: data,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to estimate gas limit: %v", err)
@@ -135,18 +183,20 @@ func (chain *dbcChain) sendTx(ctx context.Context, contract *chainContract, data
 		return "", fmt.Errorf("failed to suggest gas price: %v", err)
 	}
 
-	nonce, err := client.PendingNonceAt(txCtx, publicAddress)
+	nonce, err := wallet.allocateNonce(txCtx, client)
 	if err != nil {
-		return "", fmt.Errorf("failed to get nonce: %v", err)
+		return "", fmt.Errorf("failed to allocate nonce: %v", err)
 	}
 
 	tx := types.NewTransaction(nonce, contract.contractAddress, big.NewInt(0), gasLimit, gasPrice, data)
 	signedTx, err := auth.Signer(auth.From, tx)
 	if err != nil {
+		wallet.resetNonce()
 		return "", fmt.Errorf("failed to sign transaction: %v", err)
 	}
 
 	if err = client.SendTransaction(txCtx, signedTx); err != nil {
+		wallet.resetNonce()
 		return signedTx.Hash().Hex(), fmt.Errorf("failed to send transaction: %v", err)
 	}
 	return signedTx.Hash().Hex(), nil
