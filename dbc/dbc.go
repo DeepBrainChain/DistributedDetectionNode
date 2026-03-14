@@ -63,12 +63,31 @@ func (w *txWallet) resetNonce() {
 }
 
 type dbcChain struct {
-	rpc          string
-	privateKey   *ecdsa.PrivateKey // legacy single key (used for read-only / signing)
-	wallets      []*txWallet       // wallet pool for parallel transactions
-	walletIdx    atomic.Uint64     // round-robin counter
+	rpcEndpoints []string             // multiple RPC endpoints for failover
+	rpcIdx       atomic.Uint64        // round-robin for RPC selection
+	privateKey   *ecdsa.PrivateKey    // legacy single key (used for read-only / signing)
+	wallets      []*txWallet          // wallet pool for parallel transactions
+	walletIdx    atomic.Uint64        // round-robin counter for wallet selection
 	report       *chainContract
 	machineInfos *chainContract
+}
+
+// dialRPC tries RPC endpoints in round-robin order with failover.
+// Returns a connected client or error if all endpoints fail.
+func (chain *dbcChain) dialRPC() (*ethclient.Client, error) {
+	n := len(chain.rpcEndpoints)
+	startIdx := chain.rpcIdx.Add(1) - 1
+	var lastErr error
+	for i := 0; i < n; i++ {
+		rpc := chain.rpcEndpoints[(startIdx+uint64(i))%uint64(n)]
+		client, err := ethclient.Dial(rpc)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return client, nil
+	}
+	return nil, fmt.Errorf("all RPC endpoints failed, last error: %v", lastErr)
 }
 
 func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
@@ -80,6 +99,13 @@ func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
 	if err != nil {
 		return err
 	}
+
+	// Build RPC endpoint list: use RpcEndpoints if configured, otherwise single Rpc
+	rpcs := config.RpcEndpoints
+	if len(rpcs) == 0 {
+		rpcs = []string{config.Rpc}
+	}
+	fmt.Printf("[DDN] RPC endpoints: %v\n", rpcs)
 
 	// Build wallet pool: use PrivateKeys if configured, otherwise single PrivateKey
 	keys := config.PrivateKeys
@@ -100,13 +126,13 @@ func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
 
 	primaryKey, _ := crypto.HexToECDSA(keys[0])
 	DbcChain = &dbcChain{
-		rpc:          config.Rpc,
+		rpcEndpoints: rpcs,
 		privateKey:   primaryKey,
 		wallets:      wallets,
 		report:       reportContract,
 		machineInfos: machineInfoContract,
 	}
-	fmt.Printf("[DDN] Initialized %d wallet(s) for parallel transactions\n", len(wallets))
+	fmt.Printf("[DDN] Initialized %d wallet(s), %d RPC(s)\n", len(wallets), len(rpcs))
 	return nil
 }
 
@@ -160,9 +186,9 @@ func (chain *dbcChain) sendTx(ctx context.Context, contract *chainContract, data
 	txCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client, err := ethclient.Dial(chain.rpc)
+	client, err := chain.dialRPC()
 	if err != nil {
-		return "", fmt.Errorf("failed to connect to the Ethereum client: %v", err)
+		return "", err
 	}
 	defer client.Close()
 
@@ -220,11 +246,12 @@ func (chain *dbcChain) GetMachineState(
 	projectName, machineId string,
 	stakingType mt.StakingType,
 ) (bool, bool, error) {
-	// Connect to Ethereum node
-	client, err := ethclient.Dial(chain.rpc)
+	// Connect to Ethereum node (with failover)
+	client, err := chain.dialRPC()
 	if err != nil {
-		return false, false, fmt.Errorf("failed to connect to the Ethereum client: %v", err)
+		return false, false, err
 	}
+	defer client.Close()
 
 	instance, err := aireport.NewAireport(chain.report.contractAddress, client)
 	if err != nil {

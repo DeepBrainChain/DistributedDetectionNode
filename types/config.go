@@ -27,9 +27,10 @@ type ContractConfig struct {
 
 type ChainConfig struct {
 	Rpc                 string         `json:"Rpc"`
+	RpcEndpoints        []string       `json:"RpcEndpoints,omitempty"` // multiple RPCs for failover
 	ChainId             int64          `json:"ChainId"`
-	PrivateKey          string         `json:"PrivateKey"`            // single key (backward compat)
-	PrivateKeys         []string       `json:"PrivateKeys,omitempty"` // multiple keys for parallel tx
+	PrivateKey          string         `json:"PrivateKey"`             // single key (backward compat)
+	PrivateKeys         []string       `json:"PrivateKeys,omitempty"`  // multiple keys for parallel tx
 	ReportContract      ContractConfig `json:"ReportContract"`
 	MachineInfoContract ContractConfig `json:"MachineInfoContract"`
 }

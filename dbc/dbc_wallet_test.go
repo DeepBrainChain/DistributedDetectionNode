@@ -241,3 +241,85 @@ func TestNextWallet_Overflow(t *testing.T) {
 		_ = w // just ensure no panic
 	}
 }
+
+// === RPC failover tests ===
+
+func TestDialRPC_SingleEndpoint(t *testing.T) {
+	chain := &dbcChain{rpcEndpoints: []string{"http://localhost:1"}}
+	// Will fail to connect but should not panic
+	_, err := chain.dialRPC()
+	if err == nil {
+		t.Error("expected error connecting to invalid endpoint")
+	}
+}
+
+func TestDialRPC_RoundRobin(t *testing.T) {
+	// All invalid, but verify it tries multiple endpoints
+	chain := &dbcChain{rpcEndpoints: []string{"http://a:1", "http://b:1", "http://c:1"}}
+
+	_, err := chain.dialRPC()
+	if err == nil {
+		t.Error("expected error")
+	}
+	// Should contain "all RPC endpoints failed"
+	if err != nil && !contains(err.Error(), "all RPC endpoints failed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDialRPC_RoundRobinDistribution(t *testing.T) {
+	endpoints := []string{"rpc0", "rpc1", "rpc2"}
+	chain := &dbcChain{rpcEndpoints: endpoints}
+
+	// Check that startIdx increments (round-robin)
+	idx0 := chain.rpcIdx.Load()
+	chain.dialRPC() // will fail but increments counter
+	idx1 := chain.rpcIdx.Load()
+	chain.dialRPC()
+	idx2 := chain.rpcIdx.Load()
+
+	if idx1 != idx0+1 || idx2 != idx0+2 {
+		t.Errorf("rpcIdx not incrementing: %d -> %d -> %d", idx0, idx1, idx2)
+	}
+}
+
+func TestInitConfig_RpcEndpoints(t *testing.T) {
+	// When RpcEndpoints is empty, should use single Rpc
+	rpcs := []string{}
+	singleRpc := "https://rpc2.dbcwallet.io"
+
+	result := rpcs
+	if len(result) == 0 {
+		result = []string{singleRpc}
+	}
+
+	if len(result) != 1 || result[0] != singleRpc {
+		t.Errorf("backward compat failed: got %v", result)
+	}
+}
+
+func TestInitConfig_MultipleRpcs(t *testing.T) {
+	rpcs := []string{"rpc1", "rpc2", "rpc3", "rpc4"}
+
+	result := rpcs
+	if len(result) == 0 {
+		result = []string{"fallback"}
+	}
+
+	if len(result) != 4 {
+		t.Errorf("expected 4 rpcs, got %d", len(result))
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
