@@ -239,34 +239,57 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 	do.wg.Add(1)
 	defer do.wg.Done()
 
-	const maxRetries = 3
-	retries := 0
-	for retries < maxRetries {
-		ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel1()
-		if hash, err := dbc.DbcChain.Report(
-			ctx1,
-			types.MachineOffline,
-			info.stakingType,
-			info.machine.Project,
-			info.machine.MachineId,
-		); err != nil {
-			log.Log.WithFields(logrus.Fields{
-				"machine": info.machine,
-			}).Errorf(
-				"machine offline in chain contract failed with hash %v because of %v",
-				hash,
-				err,
-			)
-			retries++
+	// 判断机器是否正在被租赁
+	isRented := false
+	if dbc.DbcChain.HasRentContract() {
+		ctx0, cancel0 := context.WithTimeout(context.Background(), 15*time.Second)
+		rented, err := dbc.DbcChain.IsRented(ctx0, info.machine.MachineId)
+		cancel0()
+		if err == nil {
+			isRented = rented
 		} else {
-			log.Log.WithFields(logrus.Fields{
-				"machine": info.machine,
-			}).Info("machine offline in chain contract success with hash ", hash)
-
-			do.SendOnlineNotify(info.machine, false)
-			break
+			log.Log.WithField("machine", info.machine.MachineId).Warnf(
+				"failed to check isRented, defaulting to report offline: %v", err)
+			// 查询失败时保守处理：仍然报告离线（宁可误报也不漏报租赁离线）
+			isRented = true
 		}
+	}
+
+	if isRented {
+		// 租赁中离线 → 调链上 Report(MachineOffline) → 触发惩罚 + 退费
+		log.Log.WithField("machine", info.machine.MachineId).Info(
+			"rented machine offline, reporting MachineOffline for penalty")
+		const maxRetries = 3
+		retries := 0
+		for retries < maxRetries {
+			ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
+			hash, err := dbc.DbcChain.Report(
+				ctx1,
+				types.MachineOffline,
+				info.stakingType,
+				info.machine.Project,
+				info.machine.MachineId,
+			)
+			cancel1()
+			if err != nil {
+				log.Log.WithFields(logrus.Fields{
+					"machine": info.machine,
+				}).Errorf("rented machine offline report failed (hash=%v): %v", hash, err)
+				retries++
+			} else {
+				log.Log.WithFields(logrus.Fields{
+					"machine": info.machine,
+				}).Info("rented machine offline report success, hash=", hash)
+				do.SendOnlineNotify(info.machine, false)
+				break
+			}
+		}
+	} else {
+		// 纯挖矿离线 → 不调链上惩罚，只标记离线（链上自动停发奖励）
+		log.Log.WithFields(logrus.Fields{
+			"machine": info.machine,
+		}).Info("mining machine offline, skipping chain penalty (rewards will stop automatically)")
+		do.SendOnlineNotify(info.machine, false)
 	}
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
