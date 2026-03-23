@@ -1,0 +1,9 @@
+[
+  {
+    "inputs": [{"internalType": "string", "name": "machineId", "type": "string"}],
+    "name": "isRented",
+    "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

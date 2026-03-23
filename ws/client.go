@@ -337,7 +337,20 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 		return uint32(types.ErrCodeOnline), fmt.Sprintf("failed to get machine state %v", err), []byte("")
 	}
 	if !isRegistered {
-		return uint32(types.ErrCodeOnline), "machine not registered", []byte("")
+		// blocked 机器 getMachineState=false，但如果正在被租赁，仍允许连接 DDN
+		// 这样 DDN 才能监测到租赁中机器离线并触发惩罚
+		allowRented := false
+		if dbc.DbcChain.HasRentContract() {
+			rented, rentErr := dbc.DbcChain.IsRented(ctx, onlineReq.MachineId)
+			if rentErr == nil && rented {
+				log.Log.WithField("machineId", onlineReq.MachineId).Info(
+					"machine not registered but isRented=true, allowing DDN connection for rental offline detection")
+				allowRented = true
+			}
+		}
+		if !allowRented {
+			return uint32(types.ErrCodeOnline), "machine not registered", []byte("")
+		}
 	}
 
 	if _, err := db.MDB.GetMachineInfo(ctx, onlineReq.MachineKey); err != nil {

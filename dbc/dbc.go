@@ -70,6 +70,7 @@ type dbcChain struct {
 	walletIdx    atomic.Uint64        // round-robin counter for wallet selection
 	report       *chainContract
 	machineInfos *chainContract
+	rent         *chainContract       // Rent 合约（可选，用于查询 isRented）
 }
 
 // dialRPC tries RPC endpoints in round-robin order with failover.
@@ -125,12 +126,25 @@ func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
 	}
 
 	primaryKey, _ := crypto.HexToECDSA(keys[0])
+	// Rent 合约（可选）— 用于查询 isRented 以监测租赁中离线
+	var rentContract *chainContract
+	if config.RentContract.ContractAddress != "" && config.RentContract.AbiFile != "" {
+		rc, err := initChainContract(ctx, config.RentContract, config.Rpc, config.ChainId)
+		if err != nil {
+			fmt.Printf("[DDN] WARNING: Rent contract init failed: %v (rental offline detection disabled)\n", err)
+		} else {
+			rentContract = rc
+			fmt.Printf("[DDN] Rent contract loaded: %s\n", config.RentContract.ContractAddress)
+		}
+	}
+
 	DbcChain = &dbcChain{
 		rpcEndpoints: rpcs,
 		privateKey:   primaryKey,
 		wallets:      wallets,
 		report:       reportContract,
 		machineInfos: machineInfoContract,
+		rent:         rentContract,
 	}
 	fmt.Printf("[DDN] Initialized %d wallet(s), %d RPC(s)\n", len(wallets), len(rpcs))
 	return nil
@@ -314,4 +328,47 @@ func (chain *dbcChain) SetDeepLinkMachineInfoBandwidth(
 		return "", fmt.Errorf("failed to pack data: %v", err)
 	}
 	return chain.sendTx(ctx, chain.machineInfos, data)
+}
+
+// HasRentContract returns true if Rent contract is configured.
+func (chain *dbcChain) HasRentContract() bool {
+	return chain.rent != nil
+}
+
+// IsRented queries the Rent contract to check if a machine is currently rented.
+func (chain *dbcChain) IsRented(ctx context.Context, machineId string) (bool, error) {
+	if chain.rent == nil {
+		return false, fmt.Errorf("rent contract not configured")
+	}
+
+	client, err := chain.dialRPC()
+	if err != nil {
+		return false, err
+	}
+	defer client.Close()
+
+	// Pack the call: isRented(string machineId) returns (bool)
+	data, err := chain.rent.abi.Pack("isRented", machineId)
+	if err != nil {
+		return false, fmt.Errorf("failed to pack isRented call: %v", err)
+	}
+
+	to := chain.rent.contractAddress
+	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &to, Data: data}, nil)
+	if err != nil {
+		return false, fmt.Errorf("isRented call failed: %v", err)
+	}
+
+	out, err := chain.rent.abi.Unpack("isRented", result)
+	if err != nil {
+		return false, fmt.Errorf("failed to unpack isRented result: %v", err)
+	}
+	if len(out) == 0 {
+		return false, nil
+	}
+	rented, ok := out[0].(bool)
+	if !ok {
+		return false, fmt.Errorf("unexpected isRented return type")
+	}
+	return rented, nil
 }
