@@ -363,7 +363,10 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 		}
 	}
 
-	if !isOnline {
+	// 对于 isRegistered=false 但 isRented=true 的 blocked 机器，
+	// 不报 MachineOnline（防止恢复 calcPoint 导致 blocked 机器重新获得挖矿奖励）
+	// 这些机器连接 DDN 仅用于离线监测，不参与挖矿
+	if !isOnline && isRegistered {
 		if hash, err := dbc.DbcChain.Report(
 			ctx,
 			types.MachineOnline,
