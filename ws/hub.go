@@ -290,6 +290,27 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 			"machine": info.machine,
 		}).Info("mining machine offline, skipping chain penalty (rewards will stop automatically)")
 		do.SendOnlineNotify(info.machine, false)
+
+		// 竞态保护：60 秒后二次确认 isRented，防止"check 时未租但随后被租"的窗口
+		go func(machineId, project string, st types.StakingType) {
+			time.Sleep(60 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if dbc.DbcChain.HasRentContract() {
+				rented, err := dbc.DbcChain.IsRented(ctx, machineId)
+				if err == nil && rented {
+					log.Log.WithField("machineId", machineId).Warn(
+						"race detected: machine became rented after offline, reporting MachineOffline now")
+					ctx2, cancel2 := context.WithTimeout(context.Background(), 60*time.Second)
+					defer cancel2()
+					if hash, err := dbc.DbcChain.Report(ctx2, types.MachineOffline, st, project, machineId); err != nil {
+						log.Log.WithField("machineId", machineId).Errorf("delayed rental offline report failed: %v", err)
+					} else {
+						log.Log.WithField("machineId", machineId).Infof("delayed rental offline report success, hash=%s", hash)
+					}
+				}
+			}
+		}(info.machine.MachineId, info.machine.Project, info.stakingType)
 	}
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
@@ -318,42 +339,44 @@ func (do *delayOffline) SendOnlineNotify(machine types.MachineKey, isOnline bool
 			"application/json",
 			bytes.NewBuffer(jsonData),
 		)
-		if err != nil || resp.StatusCode != 200 {
+		if err != nil {
 			log.Log.WithFields(logrus.Fields{
 				"machine": machine,
 				"online":  isOnline,
 			}).Errorf("failed to send online notify request %v times: %v", retries, err)
-		} else {
-			defer resp.Body.Close()
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				log.Log.WithFields(logrus.Fields{
-					"machine": machine,
-					"online":  isOnline,
-				}).Errorf("failed to send online notify request %v times: %v", retries, err)
-			} else {
-				result := types.OfflineNotifyResponse{}
-				if err := json.Unmarshal(body, &result); err != nil {
-					log.Log.WithFields(logrus.Fields{
-						"machine": machine,
-						"online":  isOnline,
-					}).Errorf("failed to send online notify request %v times: %v", retries, err)
-				} else {
-					if result.Code == 1 {
-						log.Log.WithFields(logrus.Fields{
-							"machine": machine,
-							"online":  isOnline,
-						}).Infof("send online notify request success %v %v", result.Success, result.Msg)
-						break
-					} else {
-						log.Log.WithFields(logrus.Fields{
-							"machine": machine,
-							"online":  isOnline,
-						}).Errorf("failed to send online notify request %v times: %v %v", retries, result.Code, result.Msg)
-					}
-				}
-			}
+			retries++
+			continue
 		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close() // 立即关闭，不用 defer（在循环内 defer 会泄漏资源）
+		if err != nil || resp.StatusCode != 200 {
+			log.Log.WithFields(logrus.Fields{
+				"machine": machine,
+				"online":  isOnline,
+			}).Errorf("failed to send online notify request %v times: status=%d err=%v", retries, resp.StatusCode, err)
+			retries++
+			continue
+		}
+		result := types.OfflineNotifyResponse{}
+		if err := json.Unmarshal(body, &result); err != nil {
+			log.Log.WithFields(logrus.Fields{
+				"machine": machine,
+				"online":  isOnline,
+			}).Errorf("failed to parse online notify response %v times: %v", retries, err)
+			retries++
+			continue
+		}
+		if result.Code == 1 {
+			log.Log.WithFields(logrus.Fields{
+				"machine": machine,
+				"online":  isOnline,
+			}).Infof("send online notify request success %v %v", result.Success, result.Msg)
+			break
+		}
+		log.Log.WithFields(logrus.Fields{
+			"machine": machine,
+			"online":  isOnline,
+		}).Errorf("online notify request rejected %v times: code=%v msg=%v", retries, result.Code, result.Msg)
 		retries++
 	}
 }
