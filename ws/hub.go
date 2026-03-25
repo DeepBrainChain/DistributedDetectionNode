@@ -261,6 +261,7 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 			"rented machine offline, reporting MachineOffline for penalty")
 		const maxRetries = 3
 		retries := 0
+		reportSuccess := false
 		for retries < maxRetries {
 			ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
 			hash, err := dbc.DbcChain.Report(
@@ -281,8 +282,15 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 					"machine": info.machine,
 				}).Info("rented machine offline report success, hash=", hash)
 				do.SendOnlineNotify(info.machine, false, hash)
+				reportSuccess = true
 				break
 			}
+		}
+		// 链上 Report 全失败时仍通知 Node.js 终止租赁并创建 penalty_record（hash 为空）
+		if !reportSuccess {
+			log.Log.WithField("machine", info.machine.MachineId).Warn(
+				"chain report failed after all retries, notifying Node.js to terminate rental anyway")
+			do.SendOnlineNotify(info.machine, false, "")
 		}
 	} else {
 		// 纯挖矿离线 → 不调链上惩罚，只标记离线（链上自动停发奖励）
@@ -307,6 +315,9 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 						log.Log.WithField("machineId", machineId).Errorf("delayed rental offline report failed: %v", err)
 					} else {
 						log.Log.WithField("machineId", machineId).Infof("delayed rental offline report success, hash=%s", hash)
+						// 补发通知，让 Node.js 创建带 tx hash 的 penalty_record
+						delayedMachine := types.MachineKey{MachineId: machineId, Project: project}
+						do.SendOnlineNotify(delayedMachine, false, hash)
 					}
 				}
 			}
