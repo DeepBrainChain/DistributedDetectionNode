@@ -1,8 +1,9 @@
 package types
 
 type OfflineNotifyRequest struct {
-	MachineId string `json:"machine_id"`
-	IsOnline  bool   `json:"is_online"`
+	MachineId    string `json:"machine_id"`
+	IsOnline     bool   `json:"is_online"`
+	ReportTxHash string `json:"report_tx_hash,omitempty"`
 }
 
 type OfflineNotifyResponse struct {

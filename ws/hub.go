@@ -280,7 +280,7 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 				log.Log.WithFields(logrus.Fields{
 					"machine": info.machine,
 				}).Info("rented machine offline report success, hash=", hash)
-				do.SendOnlineNotify(info.machine, false)
+				do.SendOnlineNotify(info.machine, false, hash)
 				break
 			}
 		}
@@ -289,7 +289,7 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 		log.Log.WithFields(logrus.Fields{
 			"machine": info.machine,
 		}).Info("mining machine offline, skipping chain penalty (rewards will stop automatically)")
-		do.SendOnlineNotify(info.machine, false)
+		do.SendOnlineNotify(info.machine, false, "")
 
 		// 竞态保护：60 秒后二次确认 isRented，防止"check 时未租但随后被租"的窗口
 		go func(machineId, project string, st types.StakingType) {
@@ -318,10 +318,11 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 	db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
 }
 
-func (do *delayOffline) SendOnlineNotify(machine types.MachineKey, isOnline bool) {
+func (do *delayOffline) SendOnlineNotify(machine types.MachineKey, isOnline bool, reportTxHash string) {
 	onr := types.OfflineNotifyRequest{
 		MachineId: machine.MachineId,
-		IsOnline:  isOnline,
+		IsOnline:      isOnline,
+		ReportTxHash: reportTxHash,
 	}
 	jsonData, err := json.Marshal(onr)
 	if err != nil {
