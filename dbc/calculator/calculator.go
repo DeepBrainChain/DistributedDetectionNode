@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync/atomic"
 )
 
 /*
@@ -22,7 +23,16 @@ type GpuInfo struct {
 	MemoryTotal int32
 }
 
-var nvidiaGpuInfoList = []GpuInfo{}
+// gpuListStore 使用 atomic.Value 存储 []GpuInfo，消除热重载时的并发读写竞态
+var gpuListStore atomic.Value // stores []GpuInfo
+
+func getGpuList() []GpuInfo {
+	v := gpuListStore.Load()
+	if v == nil {
+		return nil
+	}
+	return v.([]GpuInfo)
+}
 
 func LoadGpuList(filename string) error {
 	jsonData, err := os.ReadFile(filename)
@@ -30,14 +40,15 @@ func LoadGpuList(filename string) error {
 		return fmt.Errorf("read nvidia gpu support list failed: %v", err)
 	}
 
-	err = json.Unmarshal(jsonData, &nvidiaGpuInfoList)
-	if err != nil {
+	var list []GpuInfo
+	if err = json.Unmarshal(jsonData, &list); err != nil {
 		return fmt.Errorf("parse nvidia gpu support list failed: %v", err)
 	}
 
-	if len(nvidiaGpuInfoList) == 0 {
+	if len(list) == 0 {
 		return errors.New("empty nvidia gpu support list")
 	}
+	gpuListStore.Store(list)
 	return nil
 }
 
@@ -58,7 +69,7 @@ func CalculatePointExact(gpuNames []string, gpuMemoryTotals []int32, memoryTotal
 		// if !ok {
 		// 	return 0.0
 		// }
-		for _, gpuInfo := range nvidiaGpuInfoList {
+		for _, gpuInfo := range getGpuList() {
 			if gpuInfo.Name == name && gpuInfo.MemoryTotal == gpuMemoryTotals[i] {
 				// if strings.EqualFold(gpuInfo.Name, name) && gpuInfo.MemoryTotal == gpuMemoryTotals[i] {
 				// cudaCores[i] = gpuInfo.CudaCore
@@ -98,7 +109,7 @@ func CalculatePointFuzzy(gpuNames []string, memoryTotal int32) (float64, error) 
 		// if !ok {
 		// 	return 0.0
 		// }
-		for _, gpuInfo := range nvidiaGpuInfoList {
+		for _, gpuInfo := range getGpuList() {
 			if gpuInfo.Name == name {
 				// if strings.EqualFold(gpuInfo.Name, name) {
 				// cudaCores[i] = gpuInfo.CudaCore

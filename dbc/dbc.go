@@ -38,18 +38,24 @@ type txWallet struct {
 	nonceMu     sync.Mutex
 	nextNonce   uint64
 	nonceInited bool
+	lastSync    time.Time
 }
 
 func (w *txWallet) allocateNonce(ctx context.Context, client *ethclient.Client) (uint64, error) {
 	w.nonceMu.Lock()
 	defer w.nonceMu.Unlock()
-	if !w.nonceInited {
+	// 首次或每 30 秒从链上重新同步 nonce，防止 nonce gap 累积
+	if !w.nonceInited || time.Since(w.lastSync) > 30*time.Second {
 		pending, err := client.PendingNonceAt(ctx, w.address)
 		if err != nil {
 			return 0, err
 		}
-		w.nextNonce = pending
+		// nonce 只能前进不能后退（防止并发交易已用更高 nonce）
+		if pending > w.nextNonce || !w.nonceInited {
+			w.nextNonce = pending
+		}
 		w.nonceInited = true
+		w.lastSync = time.Now()
 	}
 	nonce := w.nextNonce
 	w.nextNonce++
@@ -59,7 +65,8 @@ func (w *txWallet) allocateNonce(ctx context.Context, client *ethclient.Client) 
 func (w *txWallet) resetNonce() {
 	w.nonceMu.Lock()
 	defer w.nonceMu.Unlock()
-	w.nonceInited = false
+	// 标记需要重新同步，但不回退 nextNonce（防止并发 nonce 复用）
+	w.lastSync = time.Time{}
 }
 
 type dbcChain struct {
@@ -74,7 +81,7 @@ type dbcChain struct {
 }
 
 // dialRPC tries RPC endpoints in round-robin order with failover.
-// Returns a connected client or error if all endpoints fail.
+// ethclient.Dial for HTTP is lazy (no TCP), so we probe with ChainID to verify connectivity.
 func (chain *dbcChain) dialRPC() (*ethclient.Client, error) {
 	n := len(chain.rpcEndpoints)
 	startIdx := chain.rpcIdx.Add(1) - 1
@@ -84,6 +91,15 @@ func (chain *dbcChain) dialRPC() (*ethclient.Client, error) {
 		client, err := ethclient.Dial(rpc)
 		if err != nil {
 			lastErr = err
+			continue
+		}
+		// 探活：ethclient.Dial 对 HTTP RPC 是惰性连接，需实际调用验证可达性
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_, err = client.ChainID(probeCtx)
+		probeCancel()
+		if err != nil {
+			client.Close()
+			lastErr = fmt.Errorf("RPC %s probe failed: %v", rpc, err)
 			continue
 		}
 		return client, nil
@@ -231,13 +247,13 @@ func (chain *dbcChain) sendTx(ctx context.Context, contract *chainContract, data
 	tx := types.NewTransaction(nonce, contract.contractAddress, big.NewInt(0), gasLimit, gasPrice, data)
 	signedTx, err := auth.Signer(auth.From, tx)
 	if err != nil {
-		wallet.resetNonce()
-		return "", fmt.Errorf("failed to sign transaction: %v", err)
+		wallet.resetNonce() // 触发下次从链上重新同步 nonce
+		return "", fmt.Errorf("wallet %s: failed to sign transaction: %v", wallet.address.Hex()[:10], err)
 	}
 
 	if err = client.SendTransaction(txCtx, signedTx); err != nil {
-		wallet.resetNonce()
-		return signedTx.Hash().Hex(), fmt.Errorf("failed to send transaction: %v", err)
+		wallet.resetNonce() // 触发下次从链上重新同步 nonce
+		return signedTx.Hash().Hex(), fmt.Errorf("wallet %s: failed to send transaction: %v", wallet.address.Hex()[:10], err)
 	}
 	return signedTx.Hash().Hex(), nil
 }

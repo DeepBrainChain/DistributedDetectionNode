@@ -249,9 +249,9 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 			isRented = rented
 		} else {
 			log.Log.WithField("machine", info.machine.MachineId).Warnf(
-				"failed to check isRented, defaulting to report offline: %v", err)
-			// 查询失败时保守处理：仍然报告离线（宁可误报也不漏报租赁离线）
-			isRented = true
+				"failed to check isRented, skipping penalty (RPC may be down): %v", err)
+			// RPC 查询失败时跳过惩罚（宁可漏报也不误罚，误罚造成经济损失不可逆）
+			isRented = false
 		}
 	}
 
