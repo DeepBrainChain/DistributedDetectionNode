@@ -267,11 +267,8 @@ func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{
 			"machine": info.machine,
-		}).Errorf("failed to check FreeRental rented status: %v", err)
-		// Still mark offline in DB
-		ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel2()
-		db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
+		}).Warnf("[FreeRental] IsFreeRentalRented RPC failed for %s: %v, falling through to staked path", info.machine.MachineId, err)
+		do.offlineStaked(info)
 		return
 	}
 
@@ -288,6 +285,7 @@ func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
 
 	// Machine is rented — call FreeRental.notify(4, machineId) with tp=4 (MachineOffline)
 	const maxRetries = 3
+	success := false
 	for retries := 0; retries < maxRetries; retries++ {
 		ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
 		hash, err := dbc.DbcChain.NotifyFreeRental(ctx1, 4, info.machine.MachineId)
@@ -304,8 +302,15 @@ func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
 				"machine": info.machine,
 			}).Infof("FreeRental notify offline success with hash %v", hash)
 			do.SendOnlineNotify(info.machine, false, hash)
+			success = true
 			break
 		}
+	}
+	if !success {
+		log.Log.WithFields(logrus.Fields{
+			"machine": info.machine,
+		}).Errorf("[FreeRental] NotifyFreeRental failed after %d retries for %s", maxRetries, info.machine.MachineId)
+		do.SendOnlineNotify(info.machine, false, "")
 	}
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
