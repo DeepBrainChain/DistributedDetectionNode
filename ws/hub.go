@@ -239,6 +239,82 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 	do.wg.Add(1)
 	defer do.wg.Done()
 
+	// Check if this is a FreeRental machine before reporting offline
+	if dbc.DbcChain.FreeRentalEnabled() {
+		ctx0, cancel0 := context.WithTimeout(context.Background(), 15*time.Second)
+		isFreeRental, err := dbc.DbcChain.IsFreeRentalMachine(ctx0, info.machine.MachineId)
+		cancel0()
+		if err != nil {
+			log.Log.WithFields(logrus.Fields{
+				"machine": info.machine,
+			}).Errorf("failed to check FreeRental registration: %v, falling through to normal report", err)
+			// Fall through to normal report path on error
+		} else if isFreeRental {
+			do.offlineFreeRental(info)
+			return
+		}
+	}
+
+	do.offlineStaked(info)
+}
+
+// offlineFreeRental handles offline for FreeRental machines:
+// only penalize if the machine is currently rented.
+func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 15*time.Second)
+	isRented, err := dbc.DbcChain.IsFreeRentalRented(ctx1, info.machine.MachineId)
+	cancel1()
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{
+			"machine": info.machine,
+		}).Errorf("failed to check FreeRental rented status: %v", err)
+		// Still mark offline in DB
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel2()
+		db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
+		return
+	}
+
+	if !isRented {
+		log.Log.WithFields(logrus.Fields{
+			"machine": info.machine,
+		}).Info("FreeRental machine offline but not rented, skipping penalty")
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel2()
+		db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
+		do.SendOnlineNotify(info.machine, false, "")
+		return
+	}
+
+	// Machine is rented — call FreeRental.notify(4, machineId) with tp=4 (MachineOffline)
+	const maxRetries = 3
+	for retries := 0; retries < maxRetries; retries++ {
+		ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
+		hash, err := dbc.DbcChain.NotifyFreeRental(ctx1, 4, info.machine.MachineId)
+		cancel1()
+		if err != nil {
+			log.Log.WithFields(logrus.Fields{
+				"machine": info.machine,
+			}).Errorf(
+				"FreeRental notify offline failed with hash %v because of %v (attempt %d/%d)",
+				hash, err, retries+1, maxRetries,
+			)
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"machine": info.machine,
+			}).Infof("FreeRental notify offline success with hash %v", hash)
+			do.SendOnlineNotify(info.machine, false, hash)
+			break
+		}
+	}
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel2()
+	db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
+}
+
+// offlineStaked handles the original offline flow for staked machines.
+func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 	// 判断机器是否正在被租赁
 	isRented := false
 	if dbc.DbcChain.HasRentContract() {

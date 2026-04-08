@@ -78,6 +78,7 @@ type dbcChain struct {
 	report       *chainContract
 	machineInfos *chainContract
 	rent         *chainContract       // Rent 合约（可选，用于查询 isRented）
+	freeRental   *chainContract       // FreeRental contract (nil if not configured)
 }
 
 // dialRPC tries RPC endpoints in round-robin order with failover.
@@ -115,6 +116,15 @@ func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
 	machineInfoContract, err := initChainContract(ctx, config.MachineInfoContract, config.Rpc, config.ChainId)
 	if err != nil {
 		return err
+	}
+
+	// FreeRental contract is optional — skip if not configured
+	var freeRentalContract *chainContract
+	if config.FreeRentalContract.ContractAddress != "" && config.FreeRentalContract.AbiFile != "" {
+		freeRentalContract, err = initChainContract(ctx, config.FreeRentalContract, config.Rpc, config.ChainId)
+		if err != nil {
+			return fmt.Errorf("failed to init FreeRental contract: %v", err)
+		}
 	}
 
 	// Build RPC endpoint list: use RpcEndpoints if configured, otherwise single Rpc
@@ -161,6 +171,7 @@ func InitDbcChain(ctx context.Context, config mt.ChainConfig) error {
 		report:       reportContract,
 		machineInfos: machineInfoContract,
 		rent:         rentContract,
+		freeRental:   freeRentalContract,
 	}
 	fmt.Printf("[DDN] Initialized %d wallet(s), %d RPC(s)\n", len(wallets), len(rpcs))
 	return nil
@@ -387,4 +398,103 @@ func (chain *dbcChain) IsRented(ctx context.Context, machineId string) (bool, er
 		return false, fmt.Errorf("unexpected isRented return type")
 	}
 	return rented, nil
+}
+
+// FreeRentalEnabled returns true if the FreeRental contract is configured.
+func (chain *dbcChain) FreeRentalEnabled() bool {
+	return chain.freeRental != nil
+}
+
+// IsFreeRentalMachine queries the FreeRental contract to check if a machine is registered.
+// Returns (registered, error). If the FreeRental contract is not configured, returns (false, nil).
+func (chain *dbcChain) IsFreeRentalMachine(ctx context.Context, machineId string) (bool, error) {
+	if chain.freeRental == nil {
+		return false, nil
+	}
+
+	client, err := chain.dialRPC()
+	if err != nil {
+		return false, err
+	}
+	defer client.Close()
+
+	data, err := chain.freeRental.abi.Pack("machines", machineId)
+	if err != nil {
+		return false, fmt.Errorf("failed to pack machines call: %v", err)
+	}
+
+	result, err := client.CallContract(ctx, ethereum.CallMsg{
+		To:   &chain.freeRental.contractAddress,
+		Data: data,
+	}, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to call machines(): %v", err)
+	}
+
+	outputs, err := chain.freeRental.abi.Unpack("machines", result)
+	if err != nil {
+		return false, fmt.Errorf("failed to unpack machines result: %v", err)
+	}
+	// machines() returns (address owner, uint256 pricePerHourUSD, bool registered, bool enabled)
+	if len(outputs) < 3 {
+		return false, fmt.Errorf("unexpected machines() output length: %d", len(outputs))
+	}
+	registered, ok := outputs[2].(bool)
+	if !ok {
+		return false, fmt.Errorf("unexpected type for registered field")
+	}
+	return registered, nil
+}
+
+// IsFreeRentalRented queries the FreeRental contract to check if a machine is currently rented.
+func (chain *dbcChain) IsFreeRentalRented(ctx context.Context, machineId string) (bool, error) {
+	if chain.freeRental == nil {
+		return false, fmt.Errorf("FreeRental contract not configured")
+	}
+
+	client, err := chain.dialRPC()
+	if err != nil {
+		return false, err
+	}
+	defer client.Close()
+
+	data, err := chain.freeRental.abi.Pack("machineIsRented", machineId)
+	if err != nil {
+		return false, fmt.Errorf("failed to pack machineIsRented call: %v", err)
+	}
+
+	result, err := client.CallContract(ctx, ethereum.CallMsg{
+		To:   &chain.freeRental.contractAddress,
+		Data: data,
+	}, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to call machineIsRented(): %v", err)
+	}
+
+	outputs, err := chain.freeRental.abi.Unpack("machineIsRented", result)
+	if err != nil {
+		return false, fmt.Errorf("failed to unpack machineIsRented result: %v", err)
+	}
+	if len(outputs) < 1 {
+		return false, fmt.Errorf("unexpected machineIsRented() output length: %d", len(outputs))
+	}
+	rented, ok := outputs[0].(bool)
+	if !ok {
+		return false, fmt.Errorf("unexpected type for machineIsRented result")
+	}
+	return rented, nil
+}
+
+// NotifyFreeRental calls FreeRental.notify(tp, machineId) to report a machine event.
+// tp=4 means MachineOffline.
+func (chain *dbcChain) NotifyFreeRental(ctx context.Context, tp uint8, machineId string) (string, error) {
+	if chain.freeRental == nil {
+		return "", fmt.Errorf("FreeRental contract not configured")
+	}
+
+	data, err := chain.freeRental.abi.Pack("notify", tp, machineId)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack notify call: %v", err)
+	}
+	return chain.sendTx(ctx, chain.freeRental, data)
 }

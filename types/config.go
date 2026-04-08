@@ -33,7 +33,8 @@ type ChainConfig struct {
 	PrivateKeys         []string       `json:"PrivateKeys,omitempty"`  // multiple keys for parallel tx
 	ReportContract      ContractConfig `json:"ReportContract"`
 	MachineInfoContract ContractConfig `json:"MachineInfoContract"`
-	RentContract        ContractConfig `json:"RentContract,omitempty"` // Rent 合约，用于查询 isRented 状态
+	RentContract        ContractConfig `json:"RentContract,omitempty"`        // Rent 合约，用于查询 isRented 状态
+	FreeRentalContract  ContractConfig `json:"FreeRentalContract,omitempty"`  // FreeRental 合约（可选）
 }
 
 type Certificate struct {

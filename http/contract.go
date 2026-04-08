@@ -204,6 +204,41 @@ func OfflineMachine(ctx *gin.Context) {
 	ctx1, cancel := context.WithTimeout(ctx.Request.Context(), ReportContractTimeout)
 	defer cancel()
 
+	// Check if this is a FreeRental machine
+	if dbc.DbcChain.FreeRentalEnabled() {
+		isFreeRental, err := dbc.DbcChain.IsFreeRentalMachine(ctx1, req.MachineId)
+		if err != nil {
+			log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("failed to check FreeRental registration: %v, falling through to normal report", err)
+		} else if isFreeRental {
+			// For FreeRental machines, only penalize if rented
+			isRented, err := dbc.DbcChain.IsFreeRentalRented(ctx1, req.MachineId)
+			if err != nil {
+				log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("failed to check FreeRental rented status: %v", err)
+				rsp.Code = int(types.ErrCodeDbcChain)
+				rsp.Message = err.Error()
+				ctx.JSON(ohttp.StatusInternalServerError, rsp)
+				return
+			}
+			if !isRented {
+				log.Log.WithFields(logrus.Fields{"machine": req}).Info("FreeRental machine offline but not rented, skipping penalty")
+				ctx.JSON(ohttp.StatusOK, rsp)
+				return
+			}
+			// Rented FreeRental machine — call FreeRental.notify(4, machineId)
+			hash, err := dbc.DbcChain.NotifyFreeRental(ctx1, 4, req.MachineId)
+			if err != nil {
+				log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("FreeRental notify offline failed: %v with hash %v", err, hash)
+				rsp.Code = int(types.ErrCodeDbcChain)
+				rsp.Message = err.Error()
+				ctx.JSON(ohttp.StatusInternalServerError, rsp)
+				return
+			}
+			log.Log.WithFields(logrus.Fields{"machine": req}).Infof("FreeRental notify offline success with hash %v", hash)
+			ctx.JSON(ohttp.StatusOK, rsp)
+			return
+		}
+	}
+
 	hash, err := dbc.DbcChain.Report(ctx1, types.MachineOffline, req.StakingType, req.ProjectName, req.MachineId)
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("machine offline failed: %v with hash %v", err, hash)
