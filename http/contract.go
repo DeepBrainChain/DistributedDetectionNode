@@ -208,8 +208,12 @@ func OfflineMachine(ctx *gin.Context) {
 	if dbc.DbcChain.FreeRentalEnabled() {
 		isFreeRental, err := dbc.DbcChain.IsFreeRentalMachine(ctx1, req.MachineId)
 		if err != nil {
-			log.Log.WithFields(logrus.Fields{"machine": req}).Errorf("failed to check FreeRental registration: %v, falling through to normal report", err)
-		} else if isFreeRental {
+			// RPC 失败时跳过惩罚（FreeRental 机器走 staked Report 会 revert）
+			log.Log.WithFields(logrus.Fields{"machine": req}).Warnf("IsFreeRentalMachine RPC failed: %v, skipping penalty", err)
+			ctx.JSON(ohttp.StatusOK, rsp)
+			return
+		}
+		if isFreeRental {
 			// For FreeRental machines, only penalize if rented
 			isRented, err := dbc.DbcChain.IsFreeRentalRented(ctx1, req.MachineId)
 			if err != nil {

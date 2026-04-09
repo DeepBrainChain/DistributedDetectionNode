@@ -245,11 +245,17 @@ func (do *delayOffline) Offline(info delayOfflineChanInfo) {
 		isFreeRental, err := dbc.DbcChain.IsFreeRentalMachine(ctx0, info.machine.MachineId)
 		cancel0()
 		if err != nil {
+			// RPC 失败时跳过惩罚（宁漏报不误罚，FreeRental 机器走 staked path 会 revert 浪费 gas）
 			log.Log.WithFields(logrus.Fields{
 				"machine": info.machine,
-			}).Errorf("failed to check FreeRental registration: %v, falling through to normal report", err)
-			// Fall through to normal report path on error
-		} else if isFreeRental {
+			}).Warnf("IsFreeRentalMachine RPC failed: %v, skipping penalty for safety", err)
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel2()
+			db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
+			do.SendOnlineNotify(info.machine, false, "")
+			return
+		}
+		if isFreeRental {
 			do.offlineFreeRental(info)
 			return
 		}
