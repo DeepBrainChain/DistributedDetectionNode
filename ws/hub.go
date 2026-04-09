@@ -273,8 +273,8 @@ func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
 	if err != nil {
 		log.Log.WithFields(logrus.Fields{
 			"machine": info.machine,
-		}).Warnf("[FreeRental] IsFreeRentalRented RPC failed for %s: %v, falling through to staked path", info.machine.MachineId, err)
-		do.offlineStaked(info)
+		}).Warnf("[FreeRental] IsFreeRentalRented RPC failed for %s: %v, skipping penalty (safety: no punishment on RPC failure)", info.machine.MachineId, err)
+		// 安全策略：RPC 失败时跳过惩罚，避免误调质押合约 Report
 		return
 	}
 
