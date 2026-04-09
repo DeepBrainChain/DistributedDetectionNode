@@ -312,10 +312,10 @@ test('contract.go returns error status on NotifyFreeRental failure', () => {
 });
 
 test('contract.go IsFreeRentalMachine error falls through to normal Report', () => {
-  assert.ok(contractGoSource.includes('failed to check FreeRental registration'),
+  assert.ok(contractGoSource.includes('IsFreeRentalMachine RPC failed'),
     'should log FreeRental check errors');
-  assert.ok(contractGoSource.includes('falling through to normal report'),
-    'should fall through to normal report on FreeRental check error');
+  assert.ok(contractGoSource.includes('skipping penalty'),
+    'should skip penalty on FreeRental check error');
 });
 
 test('contract.go calls normal Report for non-FreeRental machines', () => {
