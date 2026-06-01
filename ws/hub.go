@@ -289,6 +289,16 @@ func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
 		return
 	}
 
+	// ★ [2026-06-01 防误退租] 同 offlineStaked: 误判机理与机器是质押版/免质押版无关。链上 NotifyFreeRental 退租前先确认机器对主服务是否真在线。
+	if do.checkMachineOnlineBeforeReport(info.machine) {
+		log.Log.WithField("machine", info.machine.MachineId).Warn(
+			"[FreeRental] DDN detected offline but backend confirms ONLINE+SDK ok — skip chain NotifyFreeRental to prevent false eviction")
+		ctxg, cancelg := context.WithTimeout(context.Background(), 10*time.Second)
+		db.MDB.OfflineMachine(ctxg, info.machine, time.Now())
+		cancelg()
+		return
+	}
+
 	// Machine is rented — call FreeRental.notify(4, machineId) with tp=4 (MachineOffline)
 	const maxRetries = 3
 	success := false
@@ -324,6 +334,44 @@ func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
 	db.MDB.OfflineMachine(ctx2, info.machine, time.Now())
 }
 
+// checkMachineOnlineBeforeReport 在链上 Report(MachineOffline) 强制退租 *之前*, 向后端探测机器是否实际在线。
+// 根因: 检测节点判离线可能是误判 —— 机器对检测节点 WS 失联(客户端连检测节点已知 bug), 但对主服务+SDK 仍在线。
+// 原流程"先链上 Report 后才 SendOnlineNotify"使后端 false-offline 闸门来不及拦, 在线机器被误强制退租。
+// 本函数用 check_only 模式让后端只做在线判断(device.online + heartbeat<75s + signal_status==0)、零副作用,
+// 返回 true = 后端确认在线(误判) → 调用方应跳过链上 Report。
+// 保守策略: 后端不可达/非200/解析失败/非 DeepLinkEVM 一律返 false(按原逻辑 Report, 绝不漏真离线惩罚)。
+func (do *delayOffline) checkMachineOnlineBeforeReport(machine types.MachineKey) bool {
+	if machine.Project != "DeepLinkEVM" {
+		return false
+	}
+	onr := types.OfflineNotifyRequest{
+		MachineId: machine.MachineId,
+		IsOnline:  false,
+		CheckOnly: true,
+	}
+	jsonData, err := json.Marshal(onr)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 10 * time.Second} // 防后端 hang 永久阻塞 offline goroutine + 卡死优雅关闭(do.wg.Wait); 超时按 unreachable→返 false 照常 Report, 不漏真离线
+	resp, err := client.Post(do.notifyApi, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Log.WithField("machine", machine.MachineId).Warnf(
+			"checkMachineOnlineBeforeReport: backend unreachable/timeout, proceeding with report (no skip): %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != 200 {
+		return false
+	}
+	result := types.OfflineNotifyResponse{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return false
+	}
+	return result.FalseOfflineGuard
+}
+
 // offlineStaked handles the original offline flow for staked machines.
 func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 	// 判断机器是否正在被租赁
@@ -343,6 +391,16 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 	}
 
 	if isRented {
+		// ★ [2026-06-01 防误退租] 链上 Report 会强制退租且不可逆。机器可能只是对检测节点 WS 失联、
+		// 对主服务+SDK 仍在线(客户端连检测节点已知 bug)。Report 前先问后端实时在线状态, 确认在线(误判)则跳过 Report。
+		if do.checkMachineOnlineBeforeReport(info.machine) {
+			log.Log.WithField("machine", info.machine.MachineId).Warn(
+				"DDN detected offline but backend confirms ONLINE+SDK ok — skip chain MachineOffline Report to prevent false eviction")
+			ctxg, cancelg := context.WithTimeout(context.Background(), 10*time.Second)
+			db.MDB.OfflineMachine(ctxg, info.machine, time.Now())
+			cancelg()
+			return
+		}
 		// 租赁中离线 → 调链上 Report(MachineOffline) → 触发惩罚 + 退费
 		log.Log.WithField("machine", info.machine.MachineId).Info(
 			"rented machine offline, reporting MachineOffline for penalty")
@@ -396,6 +454,13 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 				if err == nil && rented {
 					log.Log.WithField("machineId", machineId).Warn(
 						"race detected: machine became rented after offline, reporting MachineOffline now")
+					// ★ [2026-06-01 防误退租] 此延迟退租路径同样绕过 guard, 且踢的是刚租 60s 的新租约(体验最差)。Report 前先确认机器对主服务是否真在线。
+					delayedMachineGuard := types.MachineKey{MachineId: machineId, Project: project}
+					if do.checkMachineOnlineBeforeReport(delayedMachineGuard) {
+						log.Log.WithField("machineId", machineId).Warn(
+							"delayed report: backend confirms ONLINE+SDK ok — skip chain MachineOffline Report to prevent false eviction")
+						return
+					}
 					ctx2, cancel2 := context.WithTimeout(context.Background(), 60*time.Second)
 					defer cancel2()
 					if hash, err := dbc.DbcChain.Report(ctx2, types.MachineOffline, st, project, machineId); err != nil {
