@@ -43,6 +43,10 @@ type delayOffline struct {
 	elements  map[types.MachineKey]cachedOfflineItem
 	wg        sync.WaitGroup
 	done      chan bool
+	// stopped 在 HandleDelayOffline 退出时 close，作为广播停止信号。
+	// 生产者（readPump/handleOnlineRequest 向 connect/diconnect 发送、延迟退租 goroutine 的 sleep）select 它以避免
+	// 向已关闭 channel 发送 panic 及关闭时永久阻塞/慢退出。替代旧的"接收方 close connect/diconnect"反模式。
+	stopped   chan struct{}
 	notifyApi string
 }
 
@@ -56,6 +60,7 @@ func InitHub(ctx context.Context, napi string) (*Hub, error) {
 			elements:  make(map[types.MachineKey]cachedOfflineItem),
 			wg:        sync.WaitGroup{},
 			done:      make(chan bool),
+			stopped:   make(chan struct{}),
 			notifyApi: napi,
 		},
 	}
@@ -163,8 +168,9 @@ func (do *delayOffline) HandleDelayOffline() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer func() {
 		ticker.Stop()
-		close(do.connect)
-		close(do.diconnect)
+		// 广播停止：不再 close connect/diconnect（接收方关闭被多生产者写的 channel 是反模式，会 send-on-closed panic）。
+		// 生产者改 select <-do.stopped 退出。
+		close(do.stopped)
 	}()
 	for {
 		select {
@@ -179,7 +185,12 @@ func (do *delayOffline) HandleDelayOffline() {
 			expired := time.Now().Add(-5 * time.Minute)
 			for machine, cdi := range do.elements {
 				if cdi.disconnectTime.Before(expired) {
-					go do.Offline(delayOfflineChanInfo{
+					// wg.Add 必须在派生前（在本 goroutine 内，sequenced-before done case），否则 Wait() 可能漏等正在上链退租的 goroutine
+					do.wg.Add(1)
+					go func(coi delayOfflineChanInfo) {
+						defer do.wg.Done()
+						do.Offline(coi)
+					}(delayOfflineChanInfo{
 						machine:        machine,
 						disconnectTime: cdi.disconnectTime,
 						stakingType:    cdi.stakingType,
@@ -235,10 +246,8 @@ func (h *Hub) checkMissingMachineInfo(ctx context.Context) {
 	})
 }
 
+// Offline 由 HandleDelayOffline 通过 `go` 派生调用，wg.Add/Done 由派生处管理（见 HandleDelayOffline ticker 分支）。
 func (do *delayOffline) Offline(info delayOfflineChanInfo) {
-	do.wg.Add(1)
-	defer do.wg.Done()
-
 	// Check if this is a FreeRental machine before reporting offline
 	if dbc.DbcChain.FreeRentalEnabled() {
 		ctx0, cancel0 := context.WithTimeout(context.Background(), 15*time.Second)
@@ -445,8 +454,15 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 		do.SendOnlineNotify(info.machine, false, "")
 
 		// 竞态保护：60 秒后二次确认 isRented，防止"check 时未租但随后被租"的窗口
+		// 纳入 do.wg 让优雅关闭等待它；sleep 可被 stopped 取消，避免关闭时干等 60s
+		do.wg.Add(1)
 		go func(machineId, project string, st types.StakingType) {
-			time.Sleep(60 * time.Second)
+			defer do.wg.Done()
+			select {
+			case <-time.After(60 * time.Second):
+			case <-do.stopped:
+				return
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			if dbc.DbcChain.HasRentContract() {
@@ -497,8 +513,10 @@ func (do *delayOffline) SendOnlineNotify(machine types.MachineKey, isOnline bool
 
 	const maxRetries = 3
 	retries := 0
+	// 带超时的 client：防后端 half-open/僵死时 http.Post(默认无超时) 永久阻塞此 goroutine → goroutine 泄漏 + 卡死优雅关闭 do.wg.Wait()
+	notifyClient := &http.Client{Timeout: 10 * time.Second}
 	for retries < maxRetries && machine.Project == "DeepLinkEVM" {
-		resp, err := http.Post(
+		resp, err := notifyClient.Post(
 			do.notifyApi,
 			"application/json",
 			bytes.NewBuffer(jsonData),

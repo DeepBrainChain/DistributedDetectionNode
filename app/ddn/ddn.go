@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"flag"
 	"fmt"
 	"net/http"
@@ -28,6 +29,27 @@ import (
 var version string
 
 var gpusupportfile string = "watch/gpus.json"
+
+// internalAuthMiddleware 保护 /api/v0/contract/* 链上写端点（register/unregister/online/offline）。
+// 这些端点会触发链上交易（退租 + 惩罚矿工，不可逆）。该服务端口同时对公网提供 /websocket，
+// 无法整端口防火墙，故对合约组做共享密钥认证。secret 为空时 fail-closed 拒绝全部请求。
+// 调用方（DeepLinkServerNodeJS point.js cafe_selfuse）需带 header `X-Internal-Secret`。
+func internalAuthMiddleware(secret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if secret == "" {
+			log.Log.Warnf("contract endpoint %s rejected: DDN_INTERNAL_SECRET not configured (fail-closed)", c.Request.URL.Path)
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"code": -1, "message": "internal auth not configured"})
+			return
+		}
+		got := c.GetHeader("X-Internal-Secret")
+		if len(got) != len(secret) || subtle.ConstantTimeCompare([]byte(got), []byte(secret)) != 1 {
+			log.Log.Warnf("contract endpoint %s unauthorized from %s", c.Request.URL.Path, c.ClientIP())
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": -1, "message": "unauthorized"})
+			return
+		}
+		c.Next()
+	}
+}
 
 var defaultLogFormatter = func(params gin.LogFormatterParams) string {
 	var statusColor, methodColor, resetColor string
@@ -172,16 +194,27 @@ func main() {
 	corsConfig.AllowOrigins = []string{"*"}
 	// corsConfig.AllowOrigins = []string{"https://example.com"}
 	corsConfig.AllowMethods = []string{"GET", "POST"}
-	// corsConfig.AllowHeaders = []string{"Origin", "Content-Type"}
-	corsConfig.AllowCredentials = true
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "X-Internal-Secret"}
+	// AllowCredentials 不能与通配 Origin "*" 共存（浏览器规范会拒），且本服务合约端点是服务端到服务端调用，不依赖 cookie 凭证
+	corsConfig.AllowCredentials = false
 	router.Use(gin.LoggerWithFormatter(defaultLogFormatter), gin.Recovery(), cors.New(corsConfig))
+
+	// 合约写端点共享密钥（环境变量优先，其次 config.json）。保护链上 register/unregister/online/offline。
+	internalSecret := os.Getenv("DDN_INTERNAL_SECRET")
+	if internalSecret == "" {
+		internalSecret = cfg.InternalSecret
+	}
+	if internalSecret == "" {
+		log.Log.Warn("DDN_INTERNAL_SECRET / config.InternalSecret 未配置 — /api/v0/contract/* 将拒绝全部请求 (fail-closed)，请配置后重启")
+	}
 	router.GET("/metrics/prometheus", pm.Metrics)
 	// router.GET("/echo", ws.Echo)
 	router.GET("/api/v0/location", hmp.Location)
 	router.GET("/api/v0/machines/incomplete", hmp.IncompleteMachines)
 	router.GET("/api/v0/calculator/point", calculator.CalculatePointFromHttp)
-	// for dbc contract
+	// for dbc contract — 共享密钥认证保护（链上写操作，含退租惩罚）
 	c0 := router.Group("/api/v0/contract")
+	c0.Use(internalAuthMiddleware(internalSecret))
 	{
 		c0.POST("/register", func(ctx *gin.Context) {
 			wg.Add(1)

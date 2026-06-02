@@ -56,6 +56,10 @@ type Config struct {
 	Chain            ChainConfig      `json:"Chain"`
 	Certificate      Certificate      `json:"Certificate"`
 	NotifyThirdParty NotifyThirdParty `json:"NotifyThirdParty"`
+	// InternalSecret 保护 /api/v0/contract/* 端点（链上 register/unregister/online/offline 退租惩罚）。
+	// 该端口同时对外提供 /websocket（矿机连接），无法整端口防火墙，故对敏感的合约组做共享密钥认证。
+	// 可被环境变量 DDN_INTERNAL_SECRET 覆盖。留空则拒绝所有 /contract 请求（fail-closed）。
+	InternalSecret string `json:"InternalSecret,omitempty"`
 }
 
 func LoadConfig(configPath string) (*Config, error) {

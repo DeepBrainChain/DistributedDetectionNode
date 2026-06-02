@@ -90,8 +90,10 @@ func (c *Client) readPump(ctx context.Context) {
 	defer func() {
 		// c.hub.wg.Done()
 		c.hub.wsConns.Delete(c)
+		// 只 close sendDone 作停止信号，不 close c.send：
+		// c.send 有多个发送方（writePump 之外的 SendUnregisterNotify/checkMissingMachineInfo 经 WriteEnvelope），
+		// 由 reader 关闭会导致 send-on-closed panic。writePump 改听 sendDone 退出，WriteEnvelope select sendDone 防阻塞。
 		close(c.sendDone)
-		close(c.send)
 		c.conn.Close()
 
 		log.Log.WithFields(logrus.Fields{
@@ -164,10 +166,14 @@ func (c *Client) readPump(ctx context.Context) {
 		db.MDB.MachineDisconnected(ctx, c.MachineKey)
 		mi, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
 		if err == nil && mi.CalcPoint != 0 && !c.hub.closed() {
-			c.hub.do.diconnect <- delayOfflineChanInfo{
+			// select stopped 防 HandleDelayOffline 已退出后向无接收方 channel 发送而阻塞/panic
+			select {
+			case c.hub.do.diconnect <- delayOfflineChanInfo{
 				machine:        c.MachineKey,
 				disconnectTime: time.Now(),
 				stakingType:    c.StakingType,
+			}:
+			case <-c.hub.do.stopped:
 			}
 		}
 		// pm.DeleteMetrics(machine)
@@ -225,6 +231,10 @@ func (c *Client) writePump(ctx context.Context) {
 			if err := w.Close(); err != nil {
 				return
 			}
+		case <-c.sendDone:
+			// readPump 已退出（连接断开）→ writePump 收尾退出。替代旧的"靠 c.send 被 close 触发 !ok"机制。
+			c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			return
 		case <-ctx.Done():
 			c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			return
@@ -248,14 +258,15 @@ func (c *Client) WriteResponse(res *types.WsResponse) error {
 }
 
 func (c *Client) WriteEnvelope(message envelope) {
+	// sendDone 关闭后丢弃消息；否则发送。c.send 不再被 close（见 readPump defer 注释），故无 send-on-closed panic；
+	// 两 case 同时 ready 时 select 随机选，sendDone 分支保证不会阻塞已退出的 writePump。
 	select {
 	case <-c.sendDone:
 		log.Log.WithFields(logrus.Fields{
 			"uuid":    c.ClientID,
 			"machine": c.MachineKey,
-		}).Info("Sender received done signal, exiting")
-	default:
-		c.send <- message
+		}).Info("Sender received done signal, dropping message")
+	case c.send <- message:
 	}
 }
 
@@ -314,7 +325,7 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 
 	onlineReq := &types.WsOnlineRequest{}
 	if err := json.Unmarshal(req.Body, onlineReq); err != nil {
-		return uint32(types.ErrCodeParam), fmt.Sprintf("parse online request failed: %f", err), []byte("")
+		return uint32(types.ErrCodeParam), fmt.Sprintf("parse online request failed: %v", err), []byte("")
 	}
 
 	if onlineReq.MachineId == "" {
@@ -396,10 +407,14 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 	c.MachineKey = onlineReq.MachineKey
 	c.StakingType = onlineReq.StakingType
 	// c.hub.wsConns.Store(c, struct{}{})
-	c.hub.do.connect <- delayOfflineChanInfo{
+	// select stopped 防 HandleDelayOffline 已退出后向无接收方 channel 发送而阻塞
+	select {
+	case c.hub.do.connect <- delayOfflineChanInfo{
 		machine:        c.MachineKey,
 		disconnectTime: time.Now(),
 		stakingType:    c.StakingType,
+	}:
+	case <-c.hub.do.stopped:
 	}
 	return 0, "machine online success", []byte("")
 }
