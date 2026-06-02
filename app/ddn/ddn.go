@@ -212,9 +212,12 @@ func main() {
 	router.GET("/api/v0/location", hmp.Location)
 	router.GET("/api/v0/machines/incomplete", hmp.IncompleteMachines)
 	router.GET("/api/v0/calculator/point", calculator.CalculatePointFromHttp)
-	// for dbc contract — 共享密钥认证保护（链上写操作，含退租惩罚）
+	// for dbc contract
+	// ⚠️ 认证只加在 /offline（唯一触发退租+惩罚的危险写端点，且唯一调用方是服务端 point.js cafe_selfuse）。
+	// register/online/unregister 由浏览器客户端(桌面端 Web、admin-vue 网吧管理、OrionRaceWeb)经
+	// health0.deepbrainchain.org 调用，无法安全持有共享密钥，故维持现状不加认证（与改动前一致，零回归）。
+	// 如需保护 register/online/unregister，须改走服务端代理后再统一加认证（后续项）。
 	c0 := router.Group("/api/v0/contract")
-	c0.Use(internalAuthMiddleware(internalSecret))
 	{
 		c0.POST("/register", func(ctx *gin.Context) {
 			wg.Add(1)
@@ -231,7 +234,8 @@ func main() {
 			defer wg.Done()
 			hmp.OnlineMachine(ctx)
 		})
-		c0.POST("/offline", func(ctx *gin.Context) {
+		// /offline 触发链上退租+惩罚（不可逆），外网可达且无认证会被武器化；仅服务端 point.js 调用，加共享密钥认证。
+		c0.POST("/offline", internalAuthMiddleware(internalSecret), func(ctx *gin.Context) {
 			wg.Add(1)
 			defer wg.Done()
 			hmp.OfflineMachine(ctx)
