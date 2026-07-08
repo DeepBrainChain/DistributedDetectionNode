@@ -161,6 +161,28 @@ func (db *mongoDB) MachineDisconnected(ctx context.Context, machine types.Machin
 	return nil
 }
 
+// ClearAllMachineConnections 清空整个 machine_connection 集合，返回删除条数。
+//
+// 语义: machine_connection 里一条记录代表"本 DDN 实例当前持有该机器的一条活 WS 连接"
+// (IsMachineConnected 判重连的唯一依据)。该记录仅在 readPump 正常退出后 (client.go 断开清理)
+// 被 MachineDisconnected 删除。DDN 进程重启/崩溃/被 kill 时, 所有 readPump goroutine 被直接
+// 终止、断开清理不执行 → 当时所有在连机器的记录全部孤儿化, 永久残留 (被拒的重连 MachineKey 为空,
+// 其断开也不清理 → 孤儿永不消失), 导致机器重启后重连被 IsMachineConnected 判成 "repeated connection"
+// 永久拒绝、上不了线 (dbcAI online=false → 不可租)。
+//
+// 修复: 启动时 (InitHub, 尚无任何活 WS 连接) 清空该集合 —— 此刻所有记录按定义都是上一个进程周期
+// 遗留的孤儿, 全删是安全的、且是唯一权威的对账点。机器随后重连会重新 InsertOne 干净的记录。
+// 不影响延迟退租状态 (由 ReadDelayOffline/WriteAllDelayOffline 独立持久化, 与本集合无关)。
+//
+// ⚠️ 前提: 单 DDN 实例对单 MongoDB。若将来多实例共享同一库, 此处需改为按实例标识清理。
+func (db *mongoDB) ClearAllMachineConnections(ctx context.Context) (int64, error) {
+	result, err := db.machineConnCollection.DeleteMany(ctx, bson.M{})
+	if err != nil {
+		return 0, err
+	}
+	return result.DeletedCount, nil
+}
+
 func (db *mongoDB) GetMachineInfo(ctx context.Context, machine types.MachineKey) (*types.MDBMachineInfo, error) {
 	result := &types.MDBMachineInfo{}
 	if err := db.machineInfoCollection.FindOne(

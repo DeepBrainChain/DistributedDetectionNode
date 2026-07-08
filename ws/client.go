@@ -335,7 +335,21 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	if db.MDB.IsMachineConnected(ctx, onlineReq.MachineKey) {
-		return uint32(types.ErrCodeOnline), "machine has been online, repeated connection", []byte("")
+		// machine_connection 里已有该机器的记录。区分两种情况 (僵尸连接根治):
+		//  ① 本实例确实持有该机器一条活 WS 连接 → 真·重复连接 → 拒 (保持原行为, 防双连接双离线上报)。
+		//  ② 本实例并无活连接 → 该记录是孤儿 (上个进程周期被 kill 遗留 / 本周期非正常断开且 DeleteOne
+		//     失败遗留) → 删掉它并放行, 让机器重连成功。不必等 DDN 重启; 只查本实例内存 wsConns 故多实例安全。
+		if c.hub.hasLiveConnection(onlineReq.MachineKey) {
+			return uint32(types.ErrCodeOnline), "machine has been online, repeated connection", []byte("")
+		}
+		log.Log.WithFields(logrus.Fields{
+			"uuid":    c.ClientID,
+			"machine": onlineReq.MachineKey,
+		}).Warn("stale machine_connection record with no live local connection — clearing to allow reconnect")
+		if err := db.MDB.MachineDisconnected(ctx, onlineReq.MachineKey); err != nil {
+			// 清理失败 → 保守拒绝, 绝不在旧记录仍在时放行 (避免与并发路径 double-insert)。
+			return uint32(types.ErrCodeOnline), "machine has been online, repeated connection (stale record cleanup failed)", []byte("")
+		}
 	}
 
 	isOnline, isRegistered, err := dbc.DbcChain.GetMachineState(

@@ -51,6 +51,20 @@ type delayOffline struct {
 }
 
 func InitHub(ctx context.Context, napi string) (*Hub, error) {
+	// [僵尸连接根治] 启动时清空 machine_connection 孤儿记录。此刻进程刚起、尚无任何活 WS 连接,
+	// 集合里残留的都是上一个进程周期 (重启/崩溃/被 kill) 未经断开清理遗留的孤儿。不清理会让机器重连被
+	// IsMachineConnected 永久判 "repeated connection" 拒绝 → 上不了链上在线 → 不可租。详见
+	// db.ClearAllMachineConnections 注释。清理失败不阻断启动 (仅告警), 避免 Mongo 抖动时 DDN 起不来。
+	{
+		clearCtx, clearCancel := context.WithTimeout(ctx, 30*time.Second)
+		if n, err := db.MDB.ClearAllMachineConnections(clearCtx); err != nil {
+			log.Log.Errorf("[startup] clear stale machine_connection records failed (continuing): %v", err)
+		} else {
+			log.Log.Infof("[startup] cleared %d stale machine_connection records (orphans from previous process cycle)", n)
+		}
+		clearCancel()
+	}
+
 	hub := &Hub{
 		wg:      sync.WaitGroup{},
 		wsConns: sync.Map{},
@@ -113,6 +127,31 @@ func (h *Hub) Close() {
 
 func (h *Hub) closed() bool {
 	return !h.open.Load()
+}
+
+// hasLiveConnection 返回本 DDN 实例当前是否持有该机器的一条活 WS 连接
+// (wsConns 里存在一个 MachineKey 相等的 *Client)。
+//
+// 用于 handleOnlineRequest 区分两种"machine_connection 记录已存在"的情形:
+//   - 本实例确有活连接 → 真·重复连接 → 应拒;
+//   - 本实例无活连接 → 该记录是孤儿 (上个进程周期被 kill 遗留 / 本周期非正常断开且 DeleteOne
+//     失败遗留) → 应清掉并放行, 让机器重连成功, 不必等下次 DDN 重启。
+//
+// 只查本实例内存 wsConns → 天然多实例安全 (各实例只认自己的活连接集, 不会误判/误清对端实例的连接)。
+// 注意: 正在握手、尚未 online 成功的连接其 MachineKey 为空 (line ~410 才赋值), 不会被匹配,
+// 故发起本次 online 请求的连接自身绝不会把自己算成"已有活连接"。
+func (h *Hub) hasLiveConnection(mk types.MachineKey) bool {
+	live := false
+	h.wsConns.Range(func(key, value any) bool {
+		if client, ok := key.(*Client); ok {
+			if client.MachineKey == mk {
+				live = true
+				return false // 命中即停止遍历
+			}
+		}
+		return true
+	})
+	return live
 }
 
 func (h *Hub) Wait() {
