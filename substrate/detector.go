@@ -44,6 +44,14 @@ var hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // Detector is the package-global spec-416 offline reporter (nil until InitDetector succeeds).
 var Detector *detector = nil
 
+// IsDBCRole reports whether this DDN instance is the DBC substrate-detector role (detector enabled).
+// The DBC-role instance does MINIMAL online handling (WS-liveness only) + substrate-only offline
+// reporting, and skips ALL the DLC/EVM online/offline logic. The DLC instance has Detector==nil.
+func IsDBCRole() bool { return Detector != nil }
+
+// IsValidMachineID reports whether id is the on-chain 64-lowercase-hex machine id form.
+func IsValidMachineID(id string) bool { return hex64.MatchString(strings.TrimSpace(id)) }
+
 type detector struct {
 	cfg    mt.SubstrateConfig
 	kp     signature.KeyringPair

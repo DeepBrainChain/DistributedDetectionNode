@@ -19,6 +19,7 @@ import (
 	"DistributedDetectionNode/dbc"
 	"DistributedDetectionNode/dbc/calculator"
 	"DistributedDetectionNode/log"
+	"DistributedDetectionNode/substrate"
 	"DistributedDetectionNode/types"
 )
 
@@ -165,7 +166,9 @@ func (c *Client) readPump(ctx context.Context) {
 	if c.MachineKey.MachineId != "" {
 		db.MDB.MachineDisconnected(ctx, c.MachineKey)
 		mi, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
-		if err == nil && mi.CalcPoint != 0 && !c.hub.closed() {
+		// [role=dbc] DBC detector tracks pure WS-liveness — queue for offline on disconnect regardless of
+		//   CalcPoint (which the DBC-role online path never sets, since it skips the EVM machine-info write).
+		if (substrate.IsDBCRole() || (err == nil && mi.CalcPoint != 0)) && !c.hub.closed() {
 			// select stopped 防 HandleDelayOffline 已退出后向无接收方 channel 发送而阻塞/panic
 			select {
 			case c.hub.do.diconnect <- delayOfflineChanInfo{
@@ -292,6 +295,13 @@ func (c *Client) handleRequest(ctx context.Context, req *types.WsRequest) {
 		message string
 		body    []byte
 	)
+	// [role=dbc] DBC substrate-detector instance: only the online (liveness) message matters.
+	//   DeepLink ST/BW messages carry EVM-side machine info irrelevant to DBC liveness — no-op them
+	//   so this instance never touches the DLC/EVM contract path.
+	if substrate.IsDBCRole() && req.Type != uint32(types.WsMtOnline) {
+		c.RespondRequest(req, 0, "ignored (dbc detector role)", []byte(""))
+		return
+	}
 	switch req.Type {
 	case uint32(types.WsMtOnline):
 		code, message, body = c.handleOnlineRequest(ctx, req)
@@ -350,6 +360,22 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 			// 清理失败 → 保守拒绝, 绝不在旧记录仍在时放行 (避免与并发路径 double-insert)。
 			return uint32(types.ErrCodeOnline), "machine has been online, repeated connection (stale record cleanup failed)", []byte("")
 		}
+	}
+
+	// [role=dbc] minimal online: this instance only tracks WS liveness to feed substrate offline reports.
+	//   Register the connection + machine_id, skip ALL EVM/DLC logic (GetMachineState/CalcPoint/registration/
+	//   SetDeepLinkMachineInfo). machine_id must be the on-chain 64-lowercase-hex form.
+	if substrate.IsDBCRole() {
+		if !substrate.IsValidMachineID(onlineReq.MachineId) {
+			return uint32(types.ErrCodeParam), "machine_id must be 64-lowercase-hex for DBC detector", []byte("")
+		}
+		if err := db.MDB.MachineConnected(ctx, onlineReq.MachineKey); err != nil {
+			return uint32(types.ErrCodeDatabase), fmt.Sprintf("insert online database failed: %v", err), []byte("")
+		}
+		c.MachineKey = onlineReq.MachineKey
+		c.StakingType = onlineReq.StakingType
+		log.Log.WithField("machine", onlineReq.MachineId).Info("machine online (dbc detector role)")
+		return 0, "machine online (dbc detector)", []byte("")
 	}
 
 	isOnline, isRegistered, err := dbc.DbcChain.GetMachineState(
