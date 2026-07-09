@@ -18,6 +18,7 @@ import (
 	"DistributedDetectionNode/dbc/calculator"
 	hmp "DistributedDetectionNode/http"
 	"DistributedDetectionNode/log"
+	"DistributedDetectionNode/substrate"
 	"DistributedDetectionNode/types"
 	"DistributedDetectionNode/ws"
 
@@ -112,6 +113,13 @@ func main() {
 
 	if err := dbc.InitDbcChain(ctx, cfg.Chain); err != nil {
 		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	// spec-416 Substrate offline detector (report_machine_offline_by_detector). Disabled/no-op unless
+	// cfg.Substrate.Enabled; defaults to SHADOW mode (log-only). Failure here is fatal only when enabled.
+	if err := substrate.InitDetector(cfg.Substrate); err != nil {
+		fmt.Println("substrate detector init:", err)
 		os.Exit(1)
 	}
 

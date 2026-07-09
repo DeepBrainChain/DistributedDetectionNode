@@ -37,6 +37,16 @@ type ChainConfig struct {
 	FreeRentalContract  ContractConfig `json:"FreeRentalContract,omitempty"`  // FreeRental 合约（可选）
 }
 
+// SubstrateConfig drives the spec-416 on-chain offline detector (report_machine_offline_by_detector).
+// Disabled by default — when Enabled=false the existing EVM path is unaffected.
+type SubstrateConfig struct {
+	Enabled      bool   `json:"Enabled"`
+	Rpc          string `json:"Rpc"`          // e.g. wss://rpc.dbcwallet.io
+	DetectorSeed string `json:"DetectorSeed"` // sr25519 secret (mnemonic/0xhex) — PROVISION VIA SECRET, never commit
+	SS58Prefix   uint16 `json:"SS58Prefix"`   // DBC address prefix (for logging the detector address to register)
+	Mode         string `json:"Mode"`         // "shadow" (default, log-only) | "live" (actually submit)
+}
+
 type Certificate struct {
 	Cert string `json:"cert"`
 	Key  string `json:"key"`
@@ -54,6 +64,7 @@ type Config struct {
 	IP2LDB           IP2LocationDB    `json:"IP2LDB"`
 	Prometheus       Prometheus       `json:"Prometheus"`
 	Chain            ChainConfig      `json:"Chain"`
+	Substrate        SubstrateConfig  `json:"Substrate"`
 	Certificate      Certificate      `json:"Certificate"`
 	NotifyThirdParty NotifyThirdParty `json:"NotifyThirdParty"`
 	// InternalSecret 保护 /api/v0/contract/* 端点（链上 register/unregister/online/offline 退租惩罚）。

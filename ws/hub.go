@@ -16,8 +16,22 @@ import (
 	"DistributedDetectionNode/db"
 	"DistributedDetectionNode/dbc"
 	"DistributedDetectionNode/log"
+	"DistributedDetectionNode/substrate"
 	"DistributedDetectionNode/types"
 )
+
+// reportOfflineSubstrate fires the spec-416 on-chain offline report (report_machine_offline_by_detector)
+// for a confirmed-offline machine. No-op when the detector is disabled; log-only in shadow mode.
+func reportOfflineSubstrate(machineID string) {
+	if substrate.Detector == nil {
+		return
+	}
+	if h, err := substrate.Detector.ReportOffline(machineID); err != nil {
+		log.Log.WithField("machine", machineID).Warnf("substrate offline-detector report failed: %v", err)
+	} else if h != "shadow" {
+		log.Log.WithFields(logrus.Fields{"machine": machineID, "substrate_tx": h}).Info("substrate offline-detector reported offline")
+	}
+}
 
 type Hub struct {
 	wg      sync.WaitGroup
@@ -452,6 +466,9 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 		// 租赁中离线 → 调链上 Report(MachineOffline) → 触发惩罚 + 退费
 		log.Log.WithField("machine", info.machine.MachineId).Info(
 			"rented machine offline, reporting MachineOffline for penalty")
+		// [spec-416] 同时经 substrate 检测器上报 report_machine_offline_by_detector（原生 online-profile 终止租约+停奖）。
+		//   已过 checkMachineOnlineBeforeReport 误判闸门；shadow 模式下仅记日志不上链。与上面的 EVM Report 并存（过渡期）。
+		reportOfflineSubstrate(info.machine.MachineId)
 		const maxRetries = 3
 		retries := 0
 		reportSuccess := false
@@ -486,10 +503,12 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 			do.SendOnlineNotify(info.machine, false, "")
 		}
 	} else {
-		// 纯挖矿离线 → 不调链上惩罚，只标记离线（链上自动停发奖励）
+		// 纯挖矿离线 → EVM 路径下链上自动停发奖励；但 spec-416 原生 online-profile 需检测器显式上报才停奖，
+		//   故经 substrate 检测器上报离线（低风险：只停奖、机器自报上线即恢复；shadow 模式仅记日志）。
 		log.Log.WithFields(logrus.Fields{
 			"machine": info.machine,
-		}).Info("mining machine offline, skipping chain penalty (rewards will stop automatically)")
+		}).Info("mining machine offline, skipping EVM penalty; substrate detector reports offline to stop rewards")
+		reportOfflineSubstrate(info.machine.MachineId)
 		do.SendOnlineNotify(info.machine, false, "")
 
 		// 竞态保护：60 秒后二次确认 isRented，防止"check 时未租但随后被租"的窗口
