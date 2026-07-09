@@ -117,10 +117,11 @@ func main() {
 	}
 
 	// spec-416 Substrate offline detector (report_machine_offline_by_detector). Disabled/no-op unless
-	// cfg.Substrate.Enabled; defaults to SHADOW mode (log-only). Failure here is fatal only when enabled.
+	// cfg.Substrate.Enabled; defaults to SHADOW mode (log-only).
+	// [co-location safety] Init failure is NON-fatal: when co-deployed with the DLC DDN, a DBC-side
+	// problem (RPC down, bad seed) must NEVER stop the DLC detection from running. Detector stays nil = no-op.
 	if err := substrate.InitDetector(cfg.Substrate); err != nil {
-		fmt.Println("substrate detector init:", err)
-		os.Exit(1)
+		log.Log.Errorf("substrate detector init failed (DBC offline-reporting disabled; DLC path unaffected): %v", err)
 	}
 
 	if err := calculator.LoadGpuList(gpusupportfile); err != nil {

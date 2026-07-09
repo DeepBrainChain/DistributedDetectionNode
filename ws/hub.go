@@ -22,10 +22,17 @@ import (
 
 // reportOfflineSubstrate fires the spec-416 on-chain offline report (report_machine_offline_by_detector)
 // for a confirmed-offline machine. No-op when the detector is disabled; log-only in shadow mode.
+// [co-location safety] recover() guards the whole call so a DBC/substrate-side panic can NEVER crash the
+// DDN process — critical when co-deployed with the DLC DDN (a DBC bug must not take DLC detection down).
 func reportOfflineSubstrate(machineID string) {
 	if substrate.Detector == nil {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Log.WithField("machine", machineID).Errorf("substrate offline-detector PANIC recovered (DLC path unaffected): %v", r)
+		}
+	}()
 	if h, err := substrate.Detector.ReportOffline(machineID); err != nil {
 		log.Log.WithField("machine", machineID).Warnf("substrate offline-detector report failed: %v", err)
 	} else if h != "shadow" {
