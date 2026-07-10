@@ -1,0 +1,50 @@
+{
+  "Addr": "0.0.0.0:7801",
+  "LogLevel": "info",
+  "LogFile": "/home/ubuntu/dbc-ddn/ddn.log",
+  "MongoDB": {
+    "URI": "__MONGO_URI__",
+    "Database": "__MONGO_DB__",
+    "ExpireTime": 86400
+  },
+  "IP2LDB": {
+    "DatabasePath": "/home/ubuntu/dbc-ddn/IP2LOCATION-LITE-DB5.BIN"
+  },
+  "Prometheus": {
+    "JobName": "dbc-ddn"
+  },
+  "Chain": {
+    "Rpc": "https://rpc2.dbcwallet.io",
+    "RpcEndpoints": [
+      "https://rpc2.dbcwallet.io",
+      "https://rpc1.dbcwallet.io",
+      "https://rpc3.dbcwallet.io",
+      "https://rpc.dbcwallet.io"
+    ],
+    "ChainId": 19880818,
+    "PrivateKey": "__THROWAWAY_EVM_KEY__",
+    "ReportContract": {
+      "AbiFile": "/home/ubuntu/dbc-ddn/ai_abi.json",
+      "ContractAddress": "0xa7B9f404653841227AF204a561455113F36d8EC8"
+    },
+    "MachineInfoContract": {
+      "AbiFile": "/home/ubuntu/dbc-ddn/machineinfos.json",
+      "ContractAddress": "0xefaF6c5980CCf4CAD5c5Ee0D423BbEA66452be79"
+    },
+    "RentContract": {
+      "AbiFile": "/home/ubuntu/dbc-ddn/rent-abi.json",
+      "ContractAddress": "0xda9efdff9ca7b7065b7706406a1a79c0e483815a"
+    },
+    "FreeRentalContract": {
+      "ContractAddress": "0x69f2Aaa94a447A210A5acF16a324C006864C98aa",
+      "AbiFile": "/home/ubuntu/dbc-ddn/free_rental_abi.json"
+    }
+  },
+  "Substrate": {
+    "Enabled": true,
+    "Rpc": "wss://rpc.dbcwallet.io",
+    "DetectorSeed": "__DETECTOR_SEED__",
+    "SS58Prefix": 42,
+    "Mode": "shadow"
+  }
+}
