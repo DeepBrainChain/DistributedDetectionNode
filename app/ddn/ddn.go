@@ -118,10 +118,19 @@ func main() {
 
 	// spec-416 Substrate offline detector (report_machine_offline_by_detector). Disabled/no-op unless
 	// cfg.Substrate.Enabled; defaults to SHADOW mode (log-only).
-	// [co-location safety] Init failure is NON-fatal: when co-deployed with the DLC DDN, a DBC-side
-	// problem (RPC down, bad seed) must NEVER stop the DLC detection from running. Detector stays nil = no-op.
+	// FAIL-CLOSED for the DBC role: if Substrate.Enabled is true, this process IS the standalone DBC
+	// detector instance and MUST NOT silently degrade to the DLC/EVM role on init failure (that would
+	// make a DBC-only box start writing to DLC contracts and drop all offline reporting — a fail-OPEN
+	// footgun). So a failed/incomplete init is fatal here. When Enabled is false (the DLC instance),
+	// InitDetector is a no-op that returns nil and this box runs the DLC path unchanged.
 	if err := substrate.InitDetector(cfg.Substrate); err != nil {
-		log.Log.Errorf("substrate detector init failed (DBC offline-reporting disabled; DLC path unaffected): %v", err)
+		if cfg.Substrate.Enabled {
+			log.Log.Fatalf("DBC detector role enabled but init failed — refusing to run (would fail-open to DLC role): %v", err)
+		}
+		log.Log.Errorf("substrate detector init failed (disabled; DLC path unaffected): %v", err)
+	}
+	if cfg.Substrate.Enabled && !substrate.IsDBCRole() {
+		log.Log.Fatal("DBC detector role enabled but detector did not initialize — refusing to run (would fail-open to DLC role)")
 	}
 
 	if err := calculator.LoadGpuList(gpusupportfile); err != nil {

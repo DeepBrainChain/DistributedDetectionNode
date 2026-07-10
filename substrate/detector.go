@@ -14,6 +14,7 @@
 package substrate
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -40,6 +41,14 @@ const (
 
 // on-chain MachineId is lowercase hex ASCII; reject anything else so we never target the wrong/no machine.
 var hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// errTimeout wraps every withTimeout deadline hit so callers can distinguish a hung RPC (ambiguous —
+// the request may still be in flight / already accepted) from a definitive connection error.
+var errTimeout = errors.New("rpc op timed out")
+
+// errAmbiguousSubmit means a submit deadline was hit: the extrinsic MAY have been accepted on-chain.
+// Retrying it risks a DUPLICATE rental-terminating report, so callers must NOT reconnect+retry on this.
+var errAmbiguousSubmit = errors.New("submit timed out; extrinsic may or may not have been accepted")
 
 // Detector is the package-global spec-416 offline reporter (nil until InitDetector succeeds).
 var Detector *detector = nil
@@ -76,6 +85,9 @@ func modeStr(shadow bool) string {
 
 // withTimeout runs f with a hard deadline (gsrpc RPC calls take no context). A hung call leaks one
 // goroutine (bounded, rare) but never blocks the caller — critical for co-location with the DLC DDN.
+// IMPORTANT: f MUST close only over local snapshots (e.g. `api := d.api`) — never over shared detector
+// fields — because on timeout the leaked goroutine keeps running and would race a concurrent reconnect()
+// that reassigns d.api/d.meta/etc. Callers snapshot before entering.
 func withTimeout(d time.Duration, f func() error) error {
 	ch := make(chan error, 1)
 	go func() {
@@ -90,7 +102,7 @@ func withTimeout(d time.Duration, f func() error) error {
 	case err := <-ch:
 		return err
 	case <-time.After(d):
-		return fmt.Errorf("rpc op timed out after %v", d)
+		return fmt.Errorf("%w after %v", errTimeout, d)
 	}
 }
 
@@ -171,9 +183,10 @@ func (d *detector) resyncNonce() error {
 	}
 	var acc gtypes.AccountInfo
 	var ok bool
+	api := d.api // snapshot: a leaked-on-timeout goroutine must not read the shared d.api field
 	if err := withTimeout(opTimeout, func() error {
 		var e error
-		ok, e = d.api.RPC.State.GetStorageLatest(key, &acc)
+		ok, e = api.RPC.State.GetStorageLatest(key, &acc)
 		return e
 	}); err != nil {
 		return fmt.Errorf("get account: %w", err)
@@ -188,10 +201,11 @@ func (d *detector) resyncNonce() error {
 // refreshIfUpgraded re-fetches metadata + runtimeVersion if the chain spec_version changed since we
 // cached it (survives runtime upgrades like 413->416). Caller holds d.mu.
 func (d *detector) refreshIfUpgraded() error {
+	api := d.api // snapshot: a leaked-on-timeout goroutine must not read the shared d.api field
 	var cur *gtypes.RuntimeVersion
 	if err := withTimeout(opTimeout, func() error {
 		var e error
-		cur, e = d.api.RPC.State.GetRuntimeVersionLatest()
+		cur, e = api.RPC.State.GetRuntimeVersionLatest()
 		return e
 	}); err != nil {
 		return fmt.Errorf("check runtime version: %w", err)
@@ -204,7 +218,7 @@ func (d *detector) refreshIfUpgraded() error {
 	var meta *gtypes.Metadata
 	if err := withTimeout(opTimeout, func() error {
 		var e error
-		meta, e = d.api.RPC.State.GetMetadataLatest()
+		meta, e = api.RPC.State.GetMetadataLatest()
 		return e
 	}); err != nil {
 		return fmt.Errorf("refresh metadata: %w", err)
@@ -220,6 +234,14 @@ func (d *detector) reconnect() error {
 	if err != nil {
 		return err
 	}
+	// close the old connection so a dropped/replaced socket doesn't leak (best-effort; a leaked
+	// in-flight op still holding it will just error out, which we already ignore).
+	if old := d.api; old != nil {
+		func() {
+			defer func() { _ = recover() }()
+			old.Client.Close()
+		}()
+	}
 	d.api, d.meta, d.genesis, d.rv = api, meta, genesis, rv
 	return d.resyncNonce()
 }
@@ -234,6 +256,14 @@ func (d *detector) ReportOffline(machineID string) (string, error) {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// prune expired dedup entries so d.recent can't grow unbounded over the process lifetime
+	// (bounded to machines reported within the last cooldown window).
+	for m, t := range d.recent {
+		if time.Since(t) >= dedupCooldown {
+			delete(d.recent, m)
+		}
+	}
 
 	// dedup: skip if we reported this machine within the cooldown (avoids duplicate rental terminations)
 	if last, ok := d.recent[id]; ok && time.Since(last) < dedupCooldown {
@@ -268,6 +298,15 @@ func (d *detector) ReportOffline(machineID string) (string, error) {
 	}
 
 	hash, err := d.signAndSubmit(call)
+	if errors.Is(err, errAmbiguousSubmit) {
+		// The submit timed out — the extrinsic may already have been accepted on-chain. Retrying
+		// would risk a DUPLICATE rental-terminating report, so we do NOT reconnect+retry here.
+		// Mark the machine in the dedup window; if it was in fact never submitted, the next
+		// detection cycle re-reports it after the cooldown. signAndSubmit already resynced the nonce.
+		d.recent[id] = time.Now()
+		log.Log.WithField("machine", id).Warn("submit timed out (ambiguous, possibly accepted) — not retrying to avoid a duplicate report; will re-report after cooldown if still offline")
+		return "ambiguous", nil
+	}
 	if err != nil {
 		// one reconnect + resync + retry (covers dropped connection / stale nonce)
 		log.Log.WithField("machine", id).Warnf("submit failed (%v) — reconnecting + retrying once", err)
@@ -301,14 +340,24 @@ func (d *detector) signAndSubmit(call gtypes.Call) (string, error) {
 	if err := ext.Sign(d.kp, o); err != nil {
 		return "", fmt.Errorf("sign: %w", err)
 	}
+	api := d.api // snapshot: a leaked-on-timeout goroutine must not read the shared d.api field
 	var h gtypes.Hash
 	if err := withTimeout(opTimeout, func() error {
 		var e error
-		h, e = d.api.RPC.Author.SubmitExtrinsic(ext)
+		h, e = api.RPC.Author.SubmitExtrinsic(ext)
 		return e
 	}); err != nil {
+		if errors.Is(err, errTimeout) {
+			// Ambiguous: the extrinsic may already have been accepted (nonce consumed) or never
+			// reached the node (nonce untouched). Don't guess — resync the nonce from chain truth so
+			// the next report is correct either way, and signal the caller NOT to retry (double-report risk).
+			if rerr := d.resyncNonce(); rerr != nil {
+				log.Log.Warnf("nonce resync after ambiguous submit timeout failed (will self-heal on next report): %v", rerr)
+			}
+			return "", errAmbiguousSubmit
+		}
 		return "", err
 	}
-	d.nonce++ // advance local nonce only after a successful submit
+	d.nonce++ // advance local nonce only after a definitively successful submit
 	return h.Hex(), nil
 }
