@@ -187,15 +187,23 @@ func initChainContract(ctx context.Context, config mt.ContractConfig, rpc string
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ABI: %v", err)
 	}
-	client, err := ethclient.Dial(rpc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to the Ethereum client: %v", err)
-	}
-	cid, err := client.NetworkID(ctx)
-	if err != nil {
-		if chainId != 0 {
-			cid = big.NewInt(chainId)
-		} else {
+	// The dialed client here is ONLY used to fetch the chain id (it is not stored on the
+	// returned chainContract). When chainId is configured we skip the dial entirely — this
+	// avoids hanging DDN startup on a dead/slow EVM RPC (NetworkID had no timeout and a dead
+	// endpoint like rpc2 would block forever). role=dbc doesn't use these EVM contracts at all.
+	var cid *big.Int
+	if chainId != 0 {
+		cid = big.NewInt(chainId)
+	} else {
+		client, err := ethclient.Dial(rpc)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to the Ethereum client: %v", err)
+		}
+		defer client.Close()
+		netCtx, netCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer netCancel()
+		cid, err = client.NetworkID(netCtx)
+		if err != nil {
 			return nil, fmt.Errorf("failed to get chain id: %v", err)
 		}
 	}
