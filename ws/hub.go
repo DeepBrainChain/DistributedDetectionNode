@@ -24,6 +24,13 @@ type Hub struct {
 	wsConns sync.Map
 	do      *delayOffline
 	open    atomic.Bool
+
+	// [FIX 2026-07-28 B] machineOwner = 每台机器"当前所有者连接"的内存登记，ownerMu 保护。
+	// 上线时原子接管(becomeOwner)：把该机器的所有者切成新连接、返回旧所有者以便顶替(关闭+标 superseded)。
+	// 退出时按 releaseOwner 判定本连接是否仍是所有者——只有仍是所有者才删记录/排下线，
+	// 被顶替的旧/在途连接退出绝不动新所有者的记录。解决"在途连接晚到覆盖并删掉活机器记录→误下线活机"。
+	ownerMu      sync.Mutex
+	machineOwner map[types.MachineKey]*Client
 }
 
 type cachedOfflineItem struct {
@@ -38,6 +45,7 @@ type delayOfflineChanInfo struct {
 }
 
 type delayOffline struct {
+	hub       *Hub // [FIX 2026-07-28 B] 回指 Hub，供下线复核直接查"内存所有权(是否有活连接)"而非 DB 记录
 	connect   chan delayOfflineChanInfo
 	diconnect chan delayOfflineChanInfo
 	elements  map[types.MachineKey]cachedOfflineItem
@@ -52,8 +60,9 @@ type delayOffline struct {
 
 func InitHub(ctx context.Context, napi string) (*Hub, error) {
 	hub := &Hub{
-		wg:      sync.WaitGroup{},
-		wsConns: sync.Map{},
+		wg:           sync.WaitGroup{},
+		wsConns:      sync.Map{},
+		machineOwner: make(map[types.MachineKey]*Client),
 		do: &delayOffline{
 			connect:   make(chan delayOfflineChanInfo),
 			diconnect: make(chan delayOfflineChanInfo),
@@ -64,6 +73,7 @@ func InitHub(ctx context.Context, napi string) (*Hub, error) {
 			notifyApi: napi,
 		},
 	}
+	hub.do.hub = hub // [FIX 2026-07-28 B] 回指，供下线复核查内存所有权
 	if err := db.MDB.ReadDelayOffline(
 		ctx,
 		func(mk types.MachineKey, t time.Time, st types.StakingType) {
@@ -77,8 +87,71 @@ func InitHub(ctx context.Context, napi string) (*Hub, error) {
 	}
 	go hub.do.HandleDelayOffline()
 	go hub.runMachineInfoCheck(ctx)
+	go hub.runOrphanConnReaper(ctx) // [FIX 2026-07-28 B] 周期清理无活连接所有者的孤儿 machine_connection 记录
+	// [FIX 2026-07-28 B] ★单实例硬约束★：machineOwner 内存所有权 + 孤儿清理 + delayOffline 下线复核
+	// 都基于「本进程内存」，只在 DDN 单实例(当前 47.130.164.32)下正确。严禁未加 node 归属前横向扩容多实例——
+	// 否则一节点会把另一节点持有的活机器误判离线→误上链下线/惩罚/退租(不可逆资金动作)。启动即告警提醒运维。
+	log.Log.Warn("[DDN single-instance assumption] offline decisions use in-process ownership (machineOwner) + orphan reaper; SAFE ONLY as a single DDN instance. Do NOT run multiple instances against the same MongoDB without adding node-ownership, or a node will wrongly report on-chain OFFLINE for machines connected to another node.")
 	hub.open.Store(true)
 	return hub, nil
+}
+
+// runOrphanConnReaper 周期性清理 machine_connection 里"已无活连接所有者"的孤儿记录。
+// [FIX 2026-07-28 B] 兜底:MachineDisconnected 删除失败(DB 抖动)、或并发上线残留的记录若没人清，
+// 会永久让 HandleDelayOffline 的 IsMachineConnected 复核误判"机器仍在线"→压制掉线机器的下线/退租/惩罚
+// (money 漏)。集合无 TTL,故用这个基于"内存所有权登记"的周期对账来收割孤儿(跨机型/掉电 crash 都覆盖)。
+func (h *Hub) runOrphanConnReaper(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if h.closed() {
+				return
+			}
+			h.reapOrphanConnections(ctx)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// reapOrphanConnections 清理"已无活连接所有者"的孤儿 machine_connection 记录。
+// ⚠️ 假设 DDN 单实例部署(当前即是,47.130.164.32)：owned 是本进程内存所有权，若将来多实例共享
+//
+//	machine_connection，本节点会把"别节点持有的活记录"误当孤儿——多实例需另加节点归属(node_id)后再放开。
+//
+// 安全点：按【记录自己的 conn_id 精确删】，即使"删除判定 → 实际删除"之间机器重连覆盖了记录，
+//
+//	新连接写的是不同 conn_id → filter 不匹配 → 绝不误删刚重连的活记录(修上一版按 MachineKey 删的 TOCTOU)。
+func (h *Hub) reapOrphanConnections(ctx context.Context) {
+	rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	recs, err := db.MDB.AllConnectionRecords(rctx)
+	if err != nil {
+		log.Log.Warnf("orphan reaper: list machine_connection failed: %v", err)
+		return
+	}
+	owned := h.ownedMachines()
+	for _, rec := range recs {
+		if rec.ConnId == "" {
+			// [FIX 2026-07-28 B] 无 conn_id 记录一律不走"按 MachineKey 删"路径(那会有重连 TOCTOU)。
+			// 本版写入都带 conn_id、启动已清老版本遗留的无 conn_id 记录 → 正常不会遇到；万一遇到只告警,
+			// 交给启动清理/手动处理,绝不在此按 MachineKey 删。
+			log.Log.Warnf("orphan reaper: unexpected machine_connection record without conn_id (machine=%v); skipping (not deleting by MachineKey)", rec.MachineKey)
+			continue
+		}
+		if _, ok := owned[rec.MachineKey]; ok {
+			continue // 有活连接所有者 → 保留(含本记录 conn_id 就是当前所有者的情形)
+		}
+		// 该机器无任何本节点活连接所有者 → 这条记录是孤儿(所有者已走但删除失败残留/掉电 crash 未清)。
+		// 按 (MachineKey, 本记录 conn_id) 精确删：只删这条,不碰同机器可能已被新连接写的其它 conn_id 记录。
+		if derr := db.MDB.MachineDisconnected(rctx, rec.MachineKey, rec.ConnId); derr != nil {
+			log.Log.Warnf("orphan reaper: delete orphan %v(conn=%s) failed: %v", rec.MachineKey, rec.ConnId, derr)
+		} else {
+			log.Log.WithFields(logrus.Fields{"machine": rec.MachineKey, "connId": rec.ConnId}).Info("orphan reaper: removed orphan machine_connection record (no live owner)")
+		}
+	}
 }
 
 // runMachineInfoCheck 每 2 分钟检查一次连接中但缺少硬件信息的机器
@@ -164,6 +237,63 @@ func (h *Hub) SendUnregisterNotify(machine types.MachineKey, stakingType types.S
 	})
 }
 
+// becomeOwner 原子地把 machine 的当前所有者切成 c，返回被顶替的旧所有者(若有)并把它关闭+标 superseded。
+// [FIX 2026-07-28 B] 用内存所有权登记取代旧的 closeExistingConnection(它按 MachineKey 扫 wsConns、
+// 看不见"MachineKey 还没赋值的在途上线连接"，且在校验前就关旧连接)。becomeOwner 只切内存登记(不做 DB、
+// 不持锁做慢操作)，由调用方在"校验全过、准备写记录"时调用：
+//
+//	① prev(旧所有者)被标 superseded + 关闭 → 其 readPump 退出后 releaseOwner 判定自己已非所有者、不动记录;
+//	② 新连接随后 MachineConnected 写自己的 conn_id;
+//	③ 若本连接在写记录前又被更新连接顶替(自身 superseded=true)，调用方放弃写、不覆盖新所有者记录。
+func (h *Hub) becomeOwner(machine types.MachineKey, c *Client) (prev *Client) {
+	h.ownerMu.Lock()
+	prev = h.machineOwner[machine]
+	h.machineOwner[machine] = c
+	h.ownerMu.Unlock()
+	if prev != nil && prev != c {
+		prev.superseded.Store(true)
+		log.Log.WithFields(logrus.Fields{
+			"machine":   machine,
+			"oldConnId": prev.ClientID,
+			"newConnId": c.ClientID,
+		}).Info("machine ownership taken over by new connection (replace, not reject)")
+		prev.conn.Close() // 触发旧所有者 readPump 退出；其清理经 releaseOwner 判定已非所有者→不删记录/不排下线
+	}
+	return prev
+}
+
+// releaseOwner 连接退出时调用：仅当 c 仍是 machine 的当前所有者才移除登记并返回 true。
+// 被顶替的旧/在途连接返回 false → 调用方不删 machine_connection 记录、不排延迟下线，
+// 从而绝不会删掉/顶替当前活所有者的记录(修"误删活机记录→误下线活机")。
+func (h *Hub) releaseOwner(machine types.MachineKey, c *Client) bool {
+	h.ownerMu.Lock()
+	defer h.ownerMu.Unlock()
+	if h.machineOwner[machine] == c {
+		delete(h.machineOwner, machine)
+		return true
+	}
+	return false
+}
+
+// ownedMachines 返回当前有活所有者的机器集合(供孤儿清理判定哪些 machine_connection 记录已无活连接)。
+// isMachineOwned 报告该机器当前是否有活连接所有者(内存判定,ownerMu 下)。[FIX 2026-07-28 B]
+// 用于下线复核:有活连接=在线→跳过下线;无=离线→触发下线(不看可能残留的 DB 记录)。
+func (h *Hub) isMachineOwned(machine types.MachineKey) bool {
+	h.ownerMu.Lock()
+	defer h.ownerMu.Unlock()
+	return h.machineOwner[machine] != nil
+}
+
+func (h *Hub) ownedMachines() map[types.MachineKey]struct{} {
+	h.ownerMu.Lock()
+	defer h.ownerMu.Unlock()
+	out := make(map[types.MachineKey]struct{}, len(h.machineOwner))
+	for mk := range h.machineOwner {
+		out[mk] = struct{}{}
+	}
+	return out
+}
+
 func (do *delayOffline) HandleDelayOffline() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer func() {
@@ -185,7 +315,15 @@ func (do *delayOffline) HandleDelayOffline() {
 			expired := time.Now().Add(-5 * time.Minute)
 			for machine, cdi := range do.elements {
 				if cdi.disconnectTime.Before(expired) {
-					// wg.Add 必须在派生前（在本 goroutine 内，sequenced-before done case），否则 Wait() 可能漏等正在上链退租的 goroutine
+					// [FIX 2026-07-28 B] 下线真正触发前复核"该机器当前是否有活连接(内存所有权)"：有→宽限期内它(或替换
+					//   连接)重连了→跳过下线(修「替换旧连接的 diconnect 排了下线、而新连接 connect 因 channel 随机顺序
+					//   没取消」的竞态,防误下线在线/挖矿/被租机器)。★ 用内存所有权 isMachineOwned 而非 DB 记录判定：
+					//   ①DDN 单实例、内存所有权即"有无活连接"的权威；②避免陈旧/错 conn_id 残留记录误让机器显得在线
+					//   →压制正当下线(死机漏惩罚)。isMachineOwned 只读内存(ownerMu 下)不阻塞、不依赖 DB。
+					if do.hub != nil && do.hub.isMachineOwned(machine) {
+						delete(do.elements, machine) // 有活连接→取消本次下线(等它真断线再排)
+						continue
+					}
 					do.wg.Add(1)
 					go func(coi delayOfflineChanInfo) {
 						defer do.wg.Done()
@@ -499,8 +637,8 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 
 func (do *delayOffline) SendOnlineNotify(machine types.MachineKey, isOnline bool, reportTxHash string) {
 	onr := types.OfflineNotifyRequest{
-		MachineId: machine.MachineId,
-		IsOnline:      isOnline,
+		MachineId:    machine.MachineId,
+		IsOnline:     isOnline,
 		ReportTxHash: reportTxHash,
 	}
 	jsonData, err := json.Marshal(onr)

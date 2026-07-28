@@ -6,6 +6,11 @@ import "time"
 type MDBMachineOnline struct {
 	MachineKey `bson:",inline"`
 	AddTime    time.Time `json:"add_time" bson:"add_time"`
+	// [FIX 2026-07-28] ConnId = 建立本条记录的那个 WS 连接身份(client UUID)。
+	// 用途：机器重启重连要"替换"旧连接时，让 MachineDisconnected 只删「自己那条」记录
+	// (conn_id 匹配)，避免旧连接的异步清理误删新连接刚写入的记录。旧记录无此字段=空串，
+	// 兼容（空 conn_id 的老 doc 仍可被 upsert 覆盖）。
+	ConnId string `json:"conn_id" bson:"conn_id"`
 }
 
 // machine info table
