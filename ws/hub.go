@@ -486,10 +486,29 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 			do.SendOnlineNotify(info.machine, false, "")
 		}
 	} else {
-		// 纯挖矿离线 → 不调链上惩罚，只标记离线（链上自动停发奖励）
+		// 纯挖矿离线 → 调链上 Report(MachineOffline) 停止挖矿奖励，但不触发罚款
+		// 注意：Report 只是在 dbcAI 合约标记 isOnline=false（停奖励），罚款由 Node.js 单独处理（仅租赁机器）
 		log.Log.WithFields(logrus.Fields{
 			"machine": info.machine,
-		}).Info("mining machine offline, skipping chain penalty (rewards will stop automatically)")
+		}).Info("mining machine offline, reporting MachineOffline to stop rewards (no slash)")
+		ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
+		reportHash, reportErr := dbc.DbcChain.Report(
+			ctx1,
+			types.MachineOffline,
+			info.stakingType,
+			info.machine.Project,
+			info.machine.MachineId,
+		)
+		cancel1()
+		if reportErr != nil {
+			log.Log.WithFields(logrus.Fields{
+				"machine": info.machine,
+			}).Errorf("mining machine offline report failed (hash=%v): %v", reportHash, reportErr)
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"machine": info.machine,
+			}).Info("mining machine offline report success, hash=", reportHash)
+		}
 		do.SendOnlineNotify(info.machine, false, "")
 
 		// 竞态保护：60 秒后二次确认 isRented，防止"check 时未租但随后被租"的窗口
