@@ -338,7 +338,14 @@ func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
 	}
 
 	// ★ [2026-06-01 防误退租] 同 offlineStaked: 误判机理与机器是质押版/免质押版无关。链上 NotifyFreeRental 退租前先确认机器对主服务是否真在线。
-	if do.checkMachineOnlineBeforeReport(info.machine) {
+	if skipReport, recentGrace := do.checkMachineOnlineBeforeReport(info.machine); skipReport {
+		if recentGrace {
+			// 刚离线(<5min, 大概率重启) → 推迟重判, 不放弃(FreeRental 同样覆盖, 防真死机不下架)
+			log.Log.WithField("machine", info.machine.MachineId).Warn(
+				"[FreeRental] backend: recently offline (<5min, likely reboot) — DEFER, re-arm for re-check in ~5min")
+			do.rearmForRecheck(info)
+			return
+		}
 		log.Log.WithField("machine", info.machine.MachineId).Warn(
 			"[FreeRental] DDN detected offline but backend confirms ONLINE+SDK ok — skip chain NotifyFreeRental to prevent false eviction")
 		ctxg, cancelg := context.WithTimeout(context.Background(), 10*time.Second)
@@ -388,9 +395,13 @@ func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
 // 本函数用 check_only 模式让后端只做在线判断(device.online + heartbeat<75s + signal_status==0)、零副作用,
 // 返回 true = 后端确认在线(误判) → 调用方应跳过链上 Report。
 // 保守策略: 后端不可达/非200/解析失败/非 DeepLinkEVM 一律返 false(按原逻辑 Report, 绝不漏真离线惩罚)。
-func (do *delayOffline) checkMachineOnlineBeforeReport(machine types.MachineKey) bool {
+// checkMachineOnlineBeforeReport 返回 (skipReport, recentGrace):
+//   skipReport=true  → 本次不发链上 Report(防误退租)。
+//   recentGrace=true → 原因是「机器刚离线不久(<5min, 大概率重启)」,调用方应**推迟重判**(rearmForRecheck)而非放弃;
+//   recentGrace=false 而 skipReport=true → 原因是「机器其实在线(误判)」,调用方**放弃**(原行为, 无需重判)。
+func (do *delayOffline) checkMachineOnlineBeforeReport(machine types.MachineKey) (bool, bool) {
 	if machine.Project != "DeepLinkEVM" {
-		return false
+		return false, false
 	}
 	onr := types.OfflineNotifyRequest{
 		MachineId: machine.MachineId,
@@ -399,25 +410,39 @@ func (do *delayOffline) checkMachineOnlineBeforeReport(machine types.MachineKey)
 	}
 	jsonData, err := json.Marshal(onr)
 	if err != nil {
-		return false
+		return false, false
 	}
 	client := &http.Client{Timeout: 10 * time.Second} // 防后端 hang 永久阻塞 offline goroutine + 卡死优雅关闭(do.wg.Wait); 超时按 unreachable→返 false 照常 Report, 不漏真离线
 	resp, err := client.Post(do.notifyApi, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		log.Log.WithField("machine", machine.MachineId).Warnf(
 			"checkMachineOnlineBeforeReport: backend unreachable/timeout, proceeding with report (no skip): %v", err)
-		return false
+		return false, false
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil || resp.StatusCode != 200 {
-		return false
+		return false, false
 	}
 	result := types.OfflineNotifyResponse{}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return false
+		return false, false
 	}
-	return result.FalseOfflineGuard
+	return result.FalseOfflineGuard, result.RecentOfflineGrace
+}
+
+// rearmForRecheck: 后端判「刚离线(<5min, 重启)」→ 不放弃, 重置计时重入 do.elements, ~5min 后由 HandleDelayOffline 重判。
+//   届时机器若已回来(重启完成)会先被 do.connect 从 elements 删掉→不判罚; 若仍离线(真死机)则 offset≥5min、
+//   后端不再宽限→照常 Report slash。这样宽限=「推迟+重判」而非「放弃」, 既不误罚重启又不放过真死机。
+func (do *delayOffline) rearmForRecheck(info delayOfflineChanInfo) {
+	select {
+	case do.diconnect <- delayOfflineChanInfo{
+		machine:        info.machine,
+		disconnectTime: time.Now(), // 重置计时: 5min 后重判
+		stakingType:    info.stakingType,
+	}:
+	case <-do.stopped:
+	}
 }
 
 // offlineStaked handles the original offline flow for staked machines.
@@ -441,7 +466,14 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 	if isRented {
 		// ★ [2026-06-01 防误退租] 链上 Report 会强制退租且不可逆。机器可能只是对检测节点 WS 失联、
 		// 对主服务+SDK 仍在线(客户端连检测节点已知 bug)。Report 前先问后端实时在线状态, 确认在线(误判)则跳过 Report。
-		if do.checkMachineOnlineBeforeReport(info.machine) {
+		if skipReport, recentGrace := do.checkMachineOnlineBeforeReport(info.machine); skipReport {
+			if recentGrace {
+				// 刚离线(<5min, 大概率重启) → 推迟重判, 不放弃(防真死机逃罚)
+				log.Log.WithField("machine", info.machine.MachineId).Warn(
+					"backend: recently offline (<5min, likely reboot) — DEFER penalty, re-arm for re-check in ~5min (won't abandon a genuinely dead machine)")
+				do.rearmForRecheck(info)
+				return
+			}
 			log.Log.WithField("machine", info.machine.MachineId).Warn(
 				"DDN detected offline but backend confirms ONLINE+SDK ok — skip chain MachineOffline Report to prevent false eviction")
 			ctxg, cancelg := context.WithTimeout(context.Background(), 10*time.Second)
@@ -530,7 +562,13 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 						"race detected: machine became rented after offline, reporting MachineOffline now")
 					// ★ [2026-06-01 防误退租] 此延迟退租路径同样绕过 guard, 且踢的是刚租 60s 的新租约(体验最差)。Report 前先确认机器对主服务是否真在线。
 					delayedMachineGuard := types.MachineKey{MachineId: machineId, Project: project}
-					if do.checkMachineOnlineBeforeReport(delayedMachineGuard) {
+					if skipReport, recentGrace := do.checkMachineOnlineBeforeReport(delayedMachineGuard); skipReport {
+						if recentGrace {
+							log.Log.WithField("machineId", machineId).Warn(
+								"delayed: recently offline (<5min, likely reboot) — DEFER, re-arm for re-check in ~5min")
+							do.rearmForRecheck(delayOfflineChanInfo{machine: delayedMachineGuard, stakingType: st})
+							return
+						}
 						log.Log.WithField("machineId", machineId).Warn(
 							"delayed report: backend confirms ONLINE+SDK ok — skip chain MachineOffline Report to prevent false eviction")
 						return
