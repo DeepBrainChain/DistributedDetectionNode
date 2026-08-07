@@ -36,13 +36,27 @@ type Hub struct {
 type cachedOfflineItem struct {
 	disconnectTime time.Time
 	stakingType    types.StakingType
+	// [2026-08-07 抖动逃罚上限] 本机第一次进入「宽限推迟」循环的时刻（rearmForRecheck 起算）。
+	//   持续抖动/离线的租用机每次 recentGrace 都重置 disconnectTime=now → 5min 时钟永远续、永不判罚
+	//   （逃罚 + 租客不退款）。用它给「累计推迟时长」加时间上限：超上限就停止宽限、照常判罚。
+	//   机器真重连(do.connect 从 elements 删除)会自然清零 → 下次掉线重新起算，只惩罚「连续 N 分钟从没稳定连上」的机器。
+	//   零值 = 尚未进入宽限循环（正常首次判定）。
+	firstDeferredAt time.Time
 }
 
 type delayOfflineChanInfo struct {
 	machine        types.MachineKey
 	disconnectTime time.Time
 	stakingType    types.StakingType
+	// [2026-08-07 抖动逃罚上限] 随 diconnect/ticker 传递首次推迟时刻，见 cachedOfflineItem.firstDeferredAt。
+	firstDeferredAt time.Time
 }
+
+// [2026-08-07 抖动逃罚上限] 累计推迟(宽限)时长的时间上限。某台租用机连续推迟超过它 = 持续抖动/离线、
+//   从没稳定连上 → 停止宽限、照常判罚（防「无限宽限=逃罚+租客不退款」）。取 30min：远大于正常重启恢复
+//   (含无盘慢启动 ~9.5min)、又能在合理时间内对持续抖动落罚。★ 用「累计推迟时长」而非「重排次数」：
+//   次数上限会把「先抖后死」的机器提前放弃推给 cron 兜底(会漏)，时间上限则一路推迟到期限再判、不漏。
+var maxDeferWindow = 30 * time.Minute
 
 type delayOffline struct {
 	hub       *Hub // [FIX 2026-07-28 B] 回指 Hub，供下线复核直接查"内存所有权(是否有活连接)"而非 DB 记录
@@ -347,8 +361,9 @@ func (do *delayOffline) HandleDelayOffline() {
 			delete(do.elements, item.machine)
 		case item := <-do.diconnect:
 			do.elements[item.machine] = cachedOfflineItem{
-				disconnectTime: item.disconnectTime,
-				stakingType:    item.stakingType,
+				disconnectTime:  item.disconnectTime,
+				stakingType:     item.stakingType,
+				firstDeferredAt: item.firstDeferredAt, // 首次推迟时刻(fresh 掉线为零值; rearm 时携带累计起点)
 			}
 		case <-ticker.C:
 			expired := time.Now().Add(-5 * time.Minute)
@@ -368,9 +383,10 @@ func (do *delayOffline) HandleDelayOffline() {
 						defer do.wg.Done()
 						do.Offline(coi)
 					}(delayOfflineChanInfo{
-						machine:        machine,
-						disconnectTime: cdi.disconnectTime,
-						stakingType:    cdi.stakingType,
+						machine:         machine,
+						disconnectTime:  cdi.disconnectTime,
+						stakingType:     cdi.stakingType,
+						firstDeferredAt: cdi.firstDeferredAt, // 传给 Offline→rearmForRecheck 判累计推迟上限
 					})
 					delete(do.elements, machine)
 				}
@@ -479,17 +495,22 @@ func (do *delayOffline) offlineFreeRental(info delayOfflineChanInfo) {
 	if skipReport, recentGrace := do.checkMachineOnlineBeforeReport(info.machine); skipReport {
 		if recentGrace {
 			// 刚离线(<5min, 大概率重启) → 推迟重判, 不放弃(FreeRental 同样覆盖, 防真死机不下架)
+			if do.rearmForRecheck(info) {
+				log.Log.WithField("machine", info.machine.MachineId).Warn(
+					"[FreeRental] backend: recently offline (<5min, likely reboot) — DEFER, re-arm for re-check in ~5min")
+				return
+			}
+			// [抖动逃罚上限] 累计推迟超上限(持续抖动、从没稳定连上) → 不再宽限，落到下面照常判罚(不 return)
 			log.Log.WithField("machine", info.machine.MachineId).Warn(
-				"[FreeRental] backend: recently offline (<5min, likely reboot) — DEFER, re-arm for re-check in ~5min")
-			do.rearmForRecheck(info)
+				"[FreeRental] deferred too long (persistent flapping) — proceeding to penalty despite recent-offline grace")
+		} else {
+			log.Log.WithField("machine", info.machine.MachineId).Warn(
+				"[FreeRental] DDN detected offline but backend confirms ONLINE+SDK ok — skip chain NotifyFreeRental to prevent false eviction")
+			ctxg, cancelg := context.WithTimeout(context.Background(), 10*time.Second)
+			db.MDB.OfflineMachine(ctxg, info.machine, time.Now())
+			cancelg()
 			return
 		}
-		log.Log.WithField("machine", info.machine.MachineId).Warn(
-			"[FreeRental] DDN detected offline but backend confirms ONLINE+SDK ok — skip chain NotifyFreeRental to prevent false eviction")
-		ctxg, cancelg := context.WithTimeout(context.Background(), 10*time.Second)
-		db.MDB.OfflineMachine(ctxg, info.machine, time.Now())
-		cancelg()
-		return
 	}
 
 	// Machine is rented — call FreeRental.notify(4, machineId) with tp=4 (MachineOffline)
@@ -572,15 +593,29 @@ func (do *delayOffline) checkMachineOnlineBeforeReport(machine types.MachineKey)
 // rearmForRecheck: 后端判「刚离线(<5min, 重启)」→ 不放弃, 重置计时重入 do.elements, ~5min 后由 HandleDelayOffline 重判。
 //   届时机器若已回来(重启完成)会先被 do.connect 从 elements 删掉→不判罚; 若仍离线(真死机)则 offset≥5min、
 //   后端不再宽限→照常 Report slash。这样宽限=「推迟+重判」而非「放弃」, 既不误罚重启又不放过真死机。
-func (do *delayOffline) rearmForRecheck(info delayOfflineChanInfo) {
+// [2026-08-07 抖动逃罚上限] 返回值语义：
+//   true  = 已重排（推迟成功），调用方应 return（本轮不判罚）。
+//   false = 累计推迟已超 maxDeferWindow（持续抖动/离线），**不再重排**；调用方应**继续往下判罚**（别 return）。
+func (do *delayOffline) rearmForRecheck(info delayOfflineChanInfo) bool {
+	first := info.firstDeferredAt
+	if first.IsZero() {
+		first = time.Now() // 第一次进入宽限推迟循环，起算累计
+	} else if time.Since(first) > maxDeferWindow {
+		log.Log.WithField("machine", info.machine.MachineId).Warnf(
+			"[offline] deferred %v > ceiling %v (persistent flapping/offline, never stabilized) — stop deferring, proceed to penalty",
+			time.Since(first).Truncate(time.Second), maxDeferWindow)
+		return false
+	}
 	select {
 	case do.diconnect <- delayOfflineChanInfo{
-		machine:        info.machine,
-		disconnectTime: time.Now(), // 重置计时: 5min 后重判
-		stakingType:    info.stakingType,
+		machine:         info.machine,
+		disconnectTime:  time.Now(), // 重置计时: 5min 后重判
+		stakingType:     info.stakingType,
+		firstDeferredAt: first, // 保留首次推迟时刻，累计推迟时长随重排一路传递
 	}:
 	case <-do.stopped:
 	}
+	return true
 }
 
 // offlineStaked handles the original offline flow for staked machines.
@@ -607,17 +642,22 @@ func (do *delayOffline) offlineStaked(info delayOfflineChanInfo) {
 		if skipReport, recentGrace := do.checkMachineOnlineBeforeReport(info.machine); skipReport {
 			if recentGrace {
 				// 刚离线(<5min, 大概率重启) → 推迟重判, 不放弃(防真死机逃罚)
+				if do.rearmForRecheck(info) {
+					log.Log.WithField("machine", info.machine.MachineId).Warn(
+						"backend: recently offline (<5min, likely reboot) — DEFER penalty, re-arm for re-check in ~5min (won't abandon a genuinely dead machine)")
+					return
+				}
+				// [抖动逃罚上限] 累计推迟超上限(持续抖动、从没稳定连上) → 不再宽限，落到下面照常判罚(不 return)
 				log.Log.WithField("machine", info.machine.MachineId).Warn(
-					"backend: recently offline (<5min, likely reboot) — DEFER penalty, re-arm for re-check in ~5min (won't abandon a genuinely dead machine)")
-				do.rearmForRecheck(info)
+					"deferred too long (persistent flapping) — proceeding to MachineOffline penalty despite recent-offline grace")
+			} else {
+				log.Log.WithField("machine", info.machine.MachineId).Warn(
+					"DDN detected offline but backend confirms ONLINE+SDK ok — skip chain MachineOffline Report to prevent false eviction")
+				ctxg, cancelg := context.WithTimeout(context.Background(), 10*time.Second)
+				db.MDB.OfflineMachine(ctxg, info.machine, time.Now())
+				cancelg()
 				return
 			}
-			log.Log.WithField("machine", info.machine.MachineId).Warn(
-				"DDN detected offline but backend confirms ONLINE+SDK ok — skip chain MachineOffline Report to prevent false eviction")
-			ctxg, cancelg := context.WithTimeout(context.Background(), 10*time.Second)
-			db.MDB.OfflineMachine(ctxg, info.machine, time.Now())
-			cancelg()
-			return
 		}
 		// 租赁中离线 → 调链上 Report(MachineOffline) → 触发惩罚 + 退费
 		log.Log.WithField("machine", info.machine.MachineId).Info(
