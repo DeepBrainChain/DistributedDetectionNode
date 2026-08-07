@@ -66,6 +66,36 @@ func InitMongo(ctx context.Context, uri, db string, eas int64) error {
 	MDB.machineConnCollection = client.Database(db).Collection("machine_connection")
 	MDB.machineInfoCollection = client.Database(db).Collection("machine_info")
 	MDB.machineTMCollection = client.Database(db).Collection("machine_tm")
+
+	// [FIX 2026-07-28 B] 启动清理【老版本遗留的无 conn_id 记录】(conn_id 不存在或为空)：本版所有写入都带
+	//   非空 conn_id(client UUID)，无 conn_id 的记录只可能是升级前老版本留下的。清掉它们，避免孤儿清理对
+	//   这类记录退回"按 MachineKey 删"路径引入重连 TOCTOU 误删活记录。
+	//   ⚠️ 只删无 conn_id 的记录、【不动带 conn_id 的记录】——所以即使滚动重启期新老进程短暂并存，
+	//      也不会误删老进程正在服务的活记录(它们都带 conn_id)。带 conn_id 的陈旧记录交给孤儿清理(conn_id
+	//      精确删、~2min 内)+ 机器重连覆盖处理。
+	if dres, derr := MDB.machineConnCollection.DeleteMany(ctx, bson.M{"$or": []bson.M{
+		{"conn_id": bson.M{"$exists": false}},
+		{"conn_id": ""},
+	}}); derr != nil {
+		log.Log.Warnf("startup clear legacy (no-conn_id) machine_connection records failed (non-fatal): %v", derr)
+	} else if dres.DeletedCount > 0 {
+		log.Log.Infof("startup cleared %d legacy (no-conn_id) machine_connection records", dres.DeletedCount)
+	}
+
+	// [FIX 2026-07-28 B] machine_connection 加唯一索引 {machine_id,project,container_id}：杜绝并发上线
+	//   各自 upsert(都没命中已存记录时)插出重复记录(重复记录会让掉线机器逃过下线)。best-effort：若历史遗留
+	//   重复导致建索引失败，只告警不致命(孤儿清理 + 所有权感知清理仍保安全)，清掉重复后重启即生效。
+	{
+		idxModel := mongo.IndexModel{
+			Keys:    bson.D{{Key: "machine_id", Value: 1}, {Key: "project", Value: 1}, {Key: "container_id", Value: 1}},
+			Options: options.Index().SetUnique(true).SetName("uniq_machine_key"),
+		}
+		if _, ierr := MDB.machineConnCollection.Indexes().CreateOne(ctx, idxModel); ierr != nil {
+			log.Log.Warnf("create unique index on machine_connection failed (likely pre-existing duplicates; non-fatal, clean dups then restart to activate): %v", ierr)
+		} else {
+			log.Log.Info("ensured unique index uniq_machine_key on machine_connection")
+		}
+	}
 	return nil
 }
 
@@ -91,16 +121,51 @@ func (db *mongoDB) IsMachineConnected(ctx context.Context, machine types.Machine
 	return true
 }
 
-func (db *mongoDB) MachineConnected(ctx context.Context, machine types.MachineKey) error {
-	res, err := db.machineConnCollection.InsertOne(ctx, types.MDBMachineOnline{
-		MachineKey: machine,
-		AddTime:    time.Now(),
-	})
+// AllConnectionRecords 返回 machine_connection 里所有记录(含 MachineKey + ConnId)。供孤儿清理:
+// 找出"有记录但已无活连接所有者"的机器，按【记录自己的 conn_id 精确删】——这样即使清理与"新连接重连
+// 覆盖记录"竞态，新连接写的是不同 conn_id、不会被误删。[FIX 2026-07-28 B]
+func (db *mongoDB) AllConnectionRecords(ctx context.Context) ([]types.MDBMachineOnline, error) {
+	cur, err := db.machineConnCollection.Find(ctx, bson.M{})
 	if err != nil {
-		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("insert online failed: ", err)
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var out []types.MDBMachineOnline
+	for cur.Next(ctx) {
+		var d types.MDBMachineOnline
+		if derr := cur.Decode(&d); derr != nil {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out, cur.Err()
+}
+
+func (db *mongoDB) MachineConnected(ctx context.Context, machine types.MachineKey, connId string) error {
+	// [FIX 2026-07-28] 改 InsertOne → ReplaceOne(upsert)：机器重启重连时，若旧记录还残留（旧连接
+	//   尚未被读超时清理），原子地「用本连接的记录覆盖它」而不是插入重复。配合 handleOnlineRequest
+	//   不再拒绝 repeated connection、改为替换，彻底解决"重启后被锁死上不了 DDN"。写入本连接 ConnId，
+	//   让后续 MachineDisconnected 只删自己那条。filter 按 MachineKey 唯一定位。
+	filter := bson.M{
+		"machine_id":   machine.MachineId,
+		"project":      machine.Project,
+		"container_id": machine.ContainerId,
+	}
+	res, err := db.machineConnCollection.ReplaceOne(
+		ctx,
+		filter,
+		types.MDBMachineOnline{
+			MachineKey: machine,
+			AddTime:    time.Now(),
+			ConnId:     connId,
+		},
+		options.Replace().SetUpsert(true),
+	)
+	if err != nil {
+		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("upsert online failed: ", err)
 		return err
 	}
-	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("inserted online id ", res.InsertedID)
+	log.Log.WithFields(logrus.Fields{"machine": machine, "connId": connId, "upsertedId": res.UpsertedID, "modified": res.ModifiedCount}).Info("upserted online record")
 
 	update, err := db.machineInfoCollection.UpdateOne(
 		ctx,
@@ -124,20 +189,27 @@ func (db *mongoDB) MachineConnected(ctx context.Context, machine types.MachineKe
 	return nil
 }
 
-func (db *mongoDB) MachineDisconnected(ctx context.Context, machine types.MachineKey) error {
-	result, err := db.machineConnCollection.DeleteOne(
-		ctx,
-		bson.M{
-			"machine_id":   machine.MachineId,
-			"project":      machine.Project,
-			"container_id": machine.ContainerId,
-		},
-	)
+func (db *mongoDB) MachineDisconnected(ctx context.Context, machine types.MachineKey, connId string) error {
+	// [FIX 2026-07-28] 连接感知删除：只删「本连接(conn_id 匹配)」那条记录。
+	//   场景：机器重启重连时，新连接会先 close 掉旧连接并 upsert 出「新 conn_id」的记录；旧连接的
+	//   readPump 退出后异步调本函数——若仍按 MachineKey 无条件删，会把新连接刚写的记录误删、
+	//   导致在线机器被判离线。加 conn_id 过滤后旧连接只能删掉它自己那条(或已被新记录覆盖=删 0 条)，
+	//   新记录安然无恙。
+	//   兼容：connId=="" 时退回按 MachineKey 删（老调用点/极老残留 doc 无 conn_id），不改变旧行为。
+	filter := bson.M{
+		"machine_id":   machine.MachineId,
+		"project":      machine.Project,
+		"container_id": machine.ContainerId,
+	}
+	if connId != "" {
+		filter["conn_id"] = connId
+	}
+	result, err := db.machineConnCollection.DeleteOne(ctx, filter)
 	if err != nil {
-		log.Log.WithFields(logrus.Fields{"machine": machine}).Error("delete online failed: ", err)
+		log.Log.WithFields(logrus.Fields{"machine": machine, "connId": connId}).Error("delete online failed: ", err)
 		return err
 	}
-	log.Log.WithFields(logrus.Fields{"machine": machine}).Info("delete online count ", result.DeletedCount)
+	log.Log.WithFields(logrus.Fields{"machine": machine, "connId": connId}).Info("delete online count ", result.DeletedCount)
 
 	// update, err := db.machineInfoCollection.UpdateOne(
 	// 	ctx,

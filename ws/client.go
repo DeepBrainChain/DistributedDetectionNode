@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -69,6 +70,11 @@ type Client struct {
 	StakingType types.StakingType
 	ClientIP    string
 	ClientID    string
+
+	// [FIX 2026-07-28 B] superseded 在本连接被同机器的更新连接顶替(becomeOwner 时)置 true。
+	// 用途:被顶替的"在途上线"连接在写 machine_connection 记录前发现自己已被顶替→放弃写(不覆盖
+	// 新所有者的记录);退出清理也据"是否仍是当前所有者"决定删不删记录/排不排下线。
+	superseded atomic.Bool
 }
 
 type envelope struct {
@@ -163,18 +169,29 @@ func (c *Client) readPump(ctx context.Context) {
 	}
 
 	if c.MachineKey.MachineId != "" {
-		db.MDB.MachineDisconnected(ctx, c.MachineKey)
-		mi, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
-		if err == nil && mi.CalcPoint != 0 && !c.hub.closed() {
-			// select stopped 防 HandleDelayOffline 已退出后向无接收方 channel 发送而阻塞/panic
-			select {
-			case c.hub.do.diconnect <- delayOfflineChanInfo{
-				machine:        c.MachineKey,
-				disconnectTime: time.Now(),
-				stakingType:    c.StakingType,
-			}:
-			case <-c.hub.do.stopped:
+		// [FIX 2026-07-28 B] 所有权感知清理：仅当本连接【仍是该机器的当前所有者】才删记录+排延迟下线。
+		//   releaseOwner 原子判定并释放：若本连接已被更新连接顶替(superseded)，返回 false → 本连接
+		//   【绝不删记录、绝不排下线】——因为记录/下线归属现任所有者，被顶替的旧/在途连接动它就会
+		//   误删活机器记录、误触发对活机器的下线(上一版的 HIGH bug)。conn_id 感知删除是第二道保险。
+		if c.hub.releaseOwner(c.MachineKey, c) {
+			db.MDB.MachineDisconnected(ctx, c.MachineKey, c.ClientID)
+			mi, err := db.MDB.GetMachineInfo(ctx, c.MachineKey)
+			if err == nil && mi.CalcPoint != 0 && !c.hub.closed() {
+				// select stopped 防 HandleDelayOffline 已退出后向无接收方 channel 发送而阻塞/panic
+				select {
+				case c.hub.do.diconnect <- delayOfflineChanInfo{
+					machine:        c.MachineKey,
+					disconnectTime: time.Now(),
+					stakingType:    c.StakingType,
+				}:
+				case <-c.hub.do.stopped:
+				}
 			}
+		} else {
+			log.Log.WithFields(logrus.Fields{
+				"machine": c.MachineKey,
+				"connId":  c.ClientID,
+			}).Info("connection was superseded by a newer one; skip disconnect cleanup (not current owner)")
 		}
 		// pm.DeleteMetrics(machine)
 	}
@@ -334,23 +351,10 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	if db.MDB.IsMachineConnected(ctx, onlineReq.MachineKey) {
-		// machine_connection 里已有该机器的记录。区分两种情况 (僵尸连接根治):
-		//  ① 本实例确实持有该机器一条活 WS 连接 → 真·重复连接 → 拒 (保持原行为, 防双连接双离线上报)。
-		//  ② 本实例并无活连接 → 该记录是孤儿 (上个进程周期被 kill 遗留 / 本周期非正常断开且 DeleteOne
-		//     失败遗留) → 删掉它并放行, 让机器重连成功。不必等 DDN 重启; 只查本实例内存 wsConns 故多实例安全。
-		if c.hub.hasLiveConnection(onlineReq.MachineKey) {
-			return uint32(types.ErrCodeOnline), "machine has been online, repeated connection", []byte("")
-		}
-		log.Log.WithFields(logrus.Fields{
-			"uuid":    c.ClientID,
-			"machine": onlineReq.MachineKey,
-		}).Warn("stale machine_connection record with no live local connection — clearing to allow reconnect")
-		if err := db.MDB.MachineDisconnected(ctx, onlineReq.MachineKey); err != nil {
-			// 清理失败 → 保守拒绝, 绝不在旧记录仍在时放行 (避免与并发路径 double-insert)。
-			return uint32(types.ErrCodeOnline), "machine has been online, repeated connection (stale record cleanup failed)", []byte("")
-		}
-	}
+	// [FIX 2026-07-28 B] 原来这里 IsMachineConnected=true 直接拒绝 "repeated connection" → 机器硬重启后
+	//   旧记录残留(读超时 pongWait=30s 才删、集合无 TTL)→重连被锁死。改为"替换"。★ 但接管旧连接+写记录
+	//   必须放到"校验全过(GetMachineState/注册/上链 Report)之后"、不能在这里先关旧连接(否则新连接校验失败
+	//   会白白把旧连接踢掉、机器掉出 DDN)。所以这里不再动连接，只在下方 MachineConnected 前做 becomeOwner。
 
 	isOnline, isRegistered, err := dbc.DbcChain.GetMachineState(
 		ctx,
@@ -414,12 +418,44 @@ func (c *Client) handleOnlineRequest(ctx context.Context, req *types.WsRequest) 
 		}
 	}
 
-	if err := db.MDB.MachineConnected(ctx, onlineReq.MachineKey); err != nil {
-		return uint32(types.ErrCodeDatabase), fmt.Sprintf("insert online database failed: %v", err), []byte("")
-	}
-
+	// [FIX 2026-07-28 B] 先设 MachineKey/StakingType，使万一本连接此后被顶替/断开，其 readPump 清理
+	// 能经 releaseOwner(c.MachineKey, c) 正确释放所有权，并按"是否仍是所有者"决定删不删记录。
 	c.MachineKey = onlineReq.MachineKey
 	c.StakingType = onlineReq.StakingType
+
+	// [FIX 2026-07-28 B] 原子接管该机器所有权：becomeOwner 把所有者切成本连接，并关闭+标 superseded 旧所有者。
+	// 放在此处(GetMachineState/注册/上链 Report 全过之后)而非请求开头 → 校验失败不会白白踢掉旧连接。
+	c.hub.becomeOwner(onlineReq.MachineKey, c)
+
+	// [FIX 2026-07-28 B] 若在校验/接管期间本连接又被"更新的连接"顶替(自身 superseded=true)，放弃写记录：
+	// 不覆盖新所有者刚写的记录。本连接随后被关闭，其清理经 releaseOwner 判定已非所有者、不动记录。
+	if c.superseded.Load() {
+		return uint32(types.ErrCodeOnline), "superseded by a newer connection during online", []byte("")
+	}
+
+	// 传 c.ClientID：MachineConnected upsert 写入本连接 conn_id，供退出时连接感知删除。
+	if err := db.MDB.MachineConnected(ctx, onlineReq.MachineKey, c.ClientID); err != nil {
+		// [FIX 2026-07-28 B] 写记录失败(DB 抖动/唯一索引 E11000)：既要撤掉 becomeOwner 抢到的所有权，也要
+		//   【关掉本连接】。若只 releaseOwner 不关连接，会留下"socket 还活着、但内存里非所有者"的状态：下线复核
+		//   用 isMachineOwned 判定→它=未拥有→若此前有待触发的下线元素、会对这台"其实活着的机器"误触发下线。
+		//   关掉连接后本 socket 不再是"活着的未拥有连接"，客户端收到错误会在新 socket 重连重试上线；关连接触发
+		//   readPump 退出，其 releaseOwner 已释放故为 no-op、不误删记录/不误排下线。
+		c.hub.releaseOwner(onlineReq.MachineKey, c)
+		// [FIX 2026-07-28 B] 补排一次延迟下线检查：本连接是"顶替旧所有者后才写记录失败"的情况——旧所有者
+		//   退出时因已非所有者不会排下线、本连接又失败退出，若不补这一下，机器此刻若真永久掉线就再没人给它
+		//   排下线(死机漏惩罚/漏退租)。补排后:机器若重连→新连接的 connect 取消它;若真掉线→5min 复核 isMachineOwned
+		//   =未拥有→触发下线(仍经主后端在线校验兜底,不会误惩罚活机)。机器已过 GetMachineState 注册/在租门槛,是真机器。
+		select {
+		case c.hub.do.diconnect <- delayOfflineChanInfo{
+			machine:        onlineReq.MachineKey,
+			disconnectTime: time.Now(),
+			stakingType:    onlineReq.StakingType,
+		}:
+		case <-c.hub.do.stopped:
+		}
+		c.conn.Close()
+		return uint32(types.ErrCodeDatabase), fmt.Sprintf("upsert online database failed: %v", err), []byte("")
+	}
 	// c.hub.wsConns.Store(c, struct{}{})
 	// select stopped 防 HandleDelayOffline 已退出后向无接收方 channel 发送而阻塞
 	select {
