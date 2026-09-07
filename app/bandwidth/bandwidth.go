@@ -1,48 +1,54 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/shirou/gopsutil/cpu"
-	"github.com/shirou/gopsutil/disk"
-	"github.com/shirou/gopsutil/mem"
-	"github.com/showwin/speedtest-go/speedtest"
 	"log"
 	"net"
 	"net/url"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/gorilla/websocket"
-
 	"DistributedDetectionNode/types"
+
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/gorilla/websocket"
+	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/mem"
+	"github.com/showwin/speedtest-go/speedtest"
 )
 
-var addr = flag.String("addr", "health0.deepbrainchain.org", "websocket service address")
+var addr = flag.String("addr", "47.130.164.32:7800", "websocket service address")
 var wallet = flag.String("wallet", "", "EVM wallet address (42 characters)")
 
 const (
-	// Time allowed to write a message to the peer.
 	writeWait = 10 * time.Second
 
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 10 * time.Second // 60 * time.Second
+	// 服务端 30s 内看不到 ping 就会断开，客户端心跳留足余量，同时放宽 pong 容错窗口。
+	pongWait   = 25 * time.Second
+	pingPeriod = 20 * time.Second
 
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
-	// Maximum message size allowed from peer.
 	maxMessageSize = 512
 
-	configFile = "config.json"
+	configFile       = "config.json"
+	onlineDelay      = 3 * time.Second
+	machineInfoDelay = 3 * time.Second
+	retryDelay       = 10 * time.Second
+	reconnectDelay   = 5 * time.Second
+	speedtestTimeout = 45 * time.Second
 )
+
+var errShutdown = errors.New("shutdown requested")
 
 type envelope struct {
 	t   int
@@ -51,7 +57,7 @@ type envelope struct {
 
 type systemInfo struct {
 	CpuCores    int32  `json:"cpu_cores" bson:"cpu_cores,omitempty"`
-	MemoryTotal int64  `json:"memory_total" bson:"memory_total,omitempty"` // GB
+	MemoryTotal int64  `json:"memory_total" bson:"memory_total,omitempty"`
 	Hdd         int64  `json:"hdd" bson:"hdd,omitempty"`
 	Bandwidth   int32  `json:"bandwidth" bson:"bandwidth,omitempty"`
 	Wallet      string `json:"wallet" bson:"wallet,omitempty"`
@@ -64,7 +70,6 @@ type Config struct {
 }
 
 func GenMachineId() (string, string, error) {
-	// use secp256k1 gen private key
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate key pair: %v", err)
@@ -83,45 +88,69 @@ func GenMachineId() (string, string, error) {
 	return publicKeyHex, privateKeyHex, nil
 }
 
-func GetSystemStats() systemInfo {
-	// get disk size
-	diskStat, _ := disk.Usage("/")
-	diskSizeGB := diskStat.Total / 1024 / 1024 / 1024
+func GetSystemStats(ctx context.Context) systemInfo {
+	info := systemInfo{}
 
-	// get CPU cores
-	cpuCores, _ := cpu.Counts(true)
-
-	// get mem size
-	memStat, _ := mem.VirtualMemory()
-	memSizeGB := memStat.Total / 1000 / 1000 / 1000
-
-	// get ISP and IP
-	//user, _ := speedtest.FetchUserInfo()
-
-	// upload test
-	speedTestClient := speedtest.New()
-	serverList, err := speedTestClient.FetchServers()
-	if err != nil {
-		log.Println("get speedtest server list failed:", err)
+	if diskStat, err := disk.Usage("/"); err != nil {
+		log.Printf("get disk usage failed: %v", err)
+	} else {
+		info.Hdd = int64(diskStat.Total / 1024 / 1024 / 1024)
 	}
+
+	if cpuCores, err := cpu.Counts(true); err != nil {
+		log.Printf("get cpu cores failed: %v", err)
+	} else {
+		info.CpuCores = int32(cpuCores)
+	}
+
+	if memStat, err := mem.VirtualMemory(); err != nil {
+		log.Printf("get memory stats failed: %v", err)
+	} else {
+		info.MemoryTotal = int64(memStat.Total / 1000 / 1000 / 1000)
+	}
+
+	if bandwidth, err := measureUploadSpeed(ctx); err != nil {
+		log.Printf("measure upload speed failed: %v", err)
+	} else {
+		info.Bandwidth = bandwidth
+	}
+
+	return info
+}
+
+func measureUploadSpeed(ctx context.Context) (int32, error) {
+	speedTestClient := speedtest.New()
+
+	serverList, err := speedTestClient.FetchServerListContext(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("fetch speedtest servers: %w", err)
+	}
+
 	targets, err := serverList.FindServer([]int{})
 	if err != nil {
-		log.Println("find speedtest server failed:", err)
+		return 0, fmt.Errorf("find speedtest server: %w", err)
 	}
 
-	var uploadSpeed float64
+	var lastErr error
 	for _, server := range targets {
-		server.UploadTest()
-		uploadSpeed = float64((server.ULSpeed * 8) / 1e6) // B/s 转 Mbps
-		break
+		if err := server.UploadTestContext(ctx); err != nil {
+			lastErr = fmt.Errorf("upload test on %s failed: %w", server.Host, err)
+			continue
+		}
+
+		uploadSpeed := float64(server.ULSpeed*8) / 1e6
+		if uploadSpeed <= 0 {
+			lastErr = fmt.Errorf("upload speed invalid: %v", server.ULSpeed)
+			continue
+		}
+
+		return int32(uploadSpeed), nil
 	}
 
-	return systemInfo{
-		Hdd:         int64(diskSizeGB),
-		CpuCores:    int32(cpuCores),
-		MemoryTotal: int64(memSizeGB),
-		Bandwidth:   int32(uploadSpeed),
+	if lastErr == nil {
+		lastErr = errors.New("no speedtest server succeeded")
 	}
+	return 0, lastErr
 }
 
 func loadConfig() (*Config, error) {
@@ -132,11 +161,10 @@ func loadConfig() (*Config, error) {
 			return nil, err
 		}
 
-		// 生成新配置时，不包含 system_info
 		config := &Config{
 			MachineId:  publicKeyHex,
 			PrivateKey: privateKeyHex,
-			Wallet:     "", // 默认钱包为空
+			Wallet:     "",
 		}
 
 		configBytes, err := json.MarshalIndent(config, "", "  ")
@@ -164,33 +192,293 @@ func loadConfig() (*Config, error) {
 	return &config, nil
 }
 
+func waitOrDone(done <-chan struct{}, delay time.Duration) bool {
+	if delay <= 0 {
+		select {
+		case <-done:
+			return false
+		default:
+			return true
+		}
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func enqueue(done <-chan struct{}, writeQueue chan<- envelope, msg envelope) bool {
+	select {
+	case <-done:
+		return false
+	case writeQueue <- msg:
+		return true
+	}
+}
+
+func runClient(config *Config, interrupt <-chan os.Signal) error {
+	dialer := websocket.Dialer{
+		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "tcp4", addr)
+		},
+		HandshakeTimeout: 30 * time.Second,
+	}
+
+	u := url.URL{Scheme: "ws", Host: *addr, Path: "/websocket"}
+	log.Printf("connecting to %s", u.String())
+
+	c, _, err := dialer.Dial(u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("dial websocket: %w", err)
+	}
+	defer c.Close()
+
+	done := make(chan struct{})
+	writeQueue := make(chan envelope, 16)
+	readErrCh := make(chan error, 1)
+	var reqID uint64
+	var sendOnline func(time.Duration)
+	var sendMachineInfo func(time.Duration)
+
+	nextReqID := func() uint64 {
+		return atomic.AddUint64(&reqID, 1) - 1
+	}
+
+	sendOnline = func(delay time.Duration) {
+		if !waitOrDone(done, delay) {
+			return
+		}
+
+		onlineReq := &types.WsOnlineRequest{
+			MachineKey: types.MachineKey{
+				MachineId:   config.MachineId,
+				Project:     "DeepLink BandWidth",
+				ContainerId: "",
+			},
+			StakingType: types.Free,
+		}
+
+		reqBody, err := json.Marshal(onlineReq)
+		if err != nil {
+			log.Printf("marshal online request body failed: %v", err)
+			return
+		}
+
+		req := &types.WsRequest{
+			WsHeader: types.WsHeader{
+				Version:   0,
+				Timestamp: time.Now().UnixMilli(),
+				Id:        nextReqID(),
+				Type:      uint32(types.WsMtOnline),
+				PubKey:    []byte(""),
+				Sign:      []byte(""),
+			},
+			Body: reqBody,
+		}
+
+		reqBytes, err := json.Marshal(req)
+		if err != nil {
+			log.Printf("marshal online request failed: %v", err)
+			return
+		}
+
+		if !enqueue(done, writeQueue, envelope{t: websocket.TextMessage, msg: reqBytes}) {
+			log.Print("connection already closed, skip online request")
+		}
+	}
+
+	sendMachineInfo = func(delay time.Duration) {
+		if !waitOrDone(done, delay) {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), speedtestTimeout)
+		systemInfo := GetSystemStats(ctx)
+		cancel()
+
+		machineInfo := &types.DeepLinkMachineInfoBandwidth{
+			CpuCores:    systemInfo.CpuCores,
+			MemoryTotal: systemInfo.MemoryTotal,
+			Hdd:         systemInfo.Hdd,
+			Bandwidth:   systemInfo.Bandwidth,
+			Wallet:      config.Wallet,
+		}
+
+		if err := machineInfo.Validate(); err != nil {
+			log.Printf("machine info invalid, retry later: %v", err)
+			go sendMachineInfo(retryDelay)
+			return
+		}
+
+		reqBody, err := json.Marshal(machineInfo)
+		if err != nil {
+			log.Printf("marshal machine info request body failed: %v", err)
+			return
+		}
+
+		req := &types.WsRequest{
+			WsHeader: types.WsHeader{
+				Version:   0,
+				Timestamp: time.Now().UnixMilli(),
+				Id:        nextReqID(),
+				Type:      uint32(types.WsMtDeepLinkMachineInfoBW),
+				PubKey:    []byte(""),
+				Sign:      []byte(""),
+			},
+			Body: reqBody,
+		}
+
+		reqBytes, err := json.Marshal(req)
+		if err != nil {
+			log.Printf("marshal machine info request failed: %v", err)
+			return
+		}
+
+		if !enqueue(done, writeQueue, envelope{t: websocket.TextMessage, msg: reqBytes}) {
+			log.Print("connection already closed, skip machine info request")
+		}
+	}
+
+	c.SetReadLimit(maxMessageSize)
+	c.SetReadDeadline(time.Now().Add(pongWait))
+	c.SetPongHandler(func(string) error {
+		return c.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
+	go func() {
+		defer close(done)
+
+		for {
+			if err := c.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+				readErrCh <- fmt.Errorf("set read deadline failed: %w", err)
+				return
+			}
+
+			_, message, err := c.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					readErrCh <- fmt.Errorf("read error: %w", err)
+				} else {
+					readErrCh <- fmt.Errorf("connection closed: %w", err)
+				}
+				return
+			}
+
+			log.Printf("recv: %s", message)
+
+			response := &types.WsResponse{}
+			if err := json.Unmarshal(message, response); err != nil {
+				log.Printf("parse response failed: %v", err)
+				continue
+			}
+
+			switch response.Type {
+			case uint32(types.WsMtOnline):
+				if response.Code == 0 {
+					go sendMachineInfo(machineInfoDelay)
+				} else {
+					log.Printf("online failed %v %v", response.Code, response.Message)
+					go sendOnline(retryDelay)
+				}
+			case uint32(types.WsMtDeepLinkMachineInfoBW):
+				if response.Code == 0 {
+					log.Printf("send machine info bandwidth success")
+				} else {
+					log.Printf("send machine info failed %v %v", response.Code, response.Message)
+					go sendMachineInfo(retryDelay)
+				}
+			case uint32(types.WsMtNotify):
+				notifyMessage := &types.WsNotifyMessage{}
+				if err := json.Unmarshal(response.Body, notifyMessage); err != nil {
+					log.Printf("parse notify response failed: %v", err)
+					continue
+				}
+				if notifyMessage.Unregister.Message != "" {
+					readErrCh <- errors.New("machine was unregistered by server")
+					return
+				}
+			}
+		}
+	}()
+
+	go sendOnline(onlineDelay)
+
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-readErrCh:
+			return err
+		case t := <-ticker.C:
+			if err := c.WriteControl(websocket.PingMessage, []byte(t.String()), time.Now().Add(writeWait)); err != nil {
+				return fmt.Errorf("ping websocket failed: %w", err)
+			}
+		case message, ok := <-writeQueue:
+			if !ok {
+				_ = c.WriteMessage(websocket.CloseMessage, []byte{})
+				return nil
+			}
+
+			if err := c.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				return fmt.Errorf("set write deadline failed: %w", err)
+			}
+
+			if message.t == websocket.CloseMessage {
+				if err := c.WriteMessage(websocket.CloseMessage, message.msg); err != nil {
+					return fmt.Errorf("write close message failed: %w", err)
+				}
+				return nil
+			}
+
+			if err := c.WriteMessage(message.t, message.msg); err != nil {
+				return fmt.Errorf("write message failed: %w", err)
+			}
+		case <-interrupt:
+			log.Println("interrupt")
+
+			if err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
+				log.Printf("write close failed: %v", err)
+			}
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+			}
+			return errShutdown
+		}
+	}
+}
+
 func main() {
 	flag.Parse()
-	log.SetFlags(0)
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
 	if *wallet != "" {
-		// 检查钱包地址
 		if len(*wallet) != 42 {
 			log.Fatal("Error: EVM wallet address must be 42 characters long, including '0x' prefix")
 		}
 
-		// 加载或生成配置
 		config, err := loadConfig()
 		if err != nil {
 			log.Fatalf("Failed to load or create config: %v", err)
 		}
 
-		// 更新钱包地址
 		config.Wallet = *wallet
 
-		// 确保配置文件中不包含 system_info
 		cleanConfig := &Config{
 			MachineId:  config.MachineId,
 			PrivateKey: config.PrivateKey,
 			Wallet:     config.Wallet,
 		}
 
-		// 保存配置
 		configBytes, err := json.MarshalIndent(cleanConfig, "", "  ")
 		if err != nil {
 			log.Fatalf("Error marshaling updated config: %v", err)
@@ -212,192 +500,21 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	dialer := websocket.Dialer{
-		NetDial: func(network, addr string) (net.Conn, error) {
-			return net.Dial("tcp4", addr)
-		},
-		HandshakeTimeout: 30 * time.Second,
-	}
-
-	u := url.URL{Scheme: "wss", Host: *addr, Path: "/websocket"}
-	log.Printf("connecting to %s", u.String())
-
-	c, _, err := dialer.Dial(u.String(), nil)
-	if err != nil {
-		log.Fatal("dial error:", err)
-	}
-	defer c.Close()
-
-	done := make(chan struct{})
-	writeQueue := make(chan envelope)
-	var reqId uint64 = 0
-
-	// send machine info using go sendOnline(time.Second)
-	sendOnline := func(delay time.Duration) {
-		time.Sleep(delay)
-		onlineReq := &types.WsOnlineRequest{
-			MachineKey: types.MachineKey{
-				MachineId:   config.MachineId,
-				Project:     "DeepLink BandWidth",
-				ContainerId: "",
-			},
-			StakingType: types.Free,
-		}
-		reqBody, err := json.Marshal(onlineReq)
-		if err != nil {
-			log.Fatalf("marshal online request body failed: %v", err)
-		}
-		req := &types.WsRequest{
-			WsHeader: types.WsHeader{
-				Version:   0,
-				Timestamp: time.Now().UnixMilli(),
-				Id:        reqId,
-				Type:      uint32(types.WsMtOnline),
-				PubKey:    []byte(""),
-				Sign:      []byte(""),
-			},
-			Body: reqBody,
-		}
-		reqBytes, err := json.Marshal(req)
-		if err != nil {
-			log.Fatalf("marshal online request failed: %v", err)
-		}
-		select {
-		case <-done:
-			log.Print("connection already closed")
-		default:
-			writeQueue <- envelope{t: websocket.TextMessage, msg: reqBytes}
-			reqId++
-		}
-	}
-
-	// send machine info using go sendMachineInfo(time.Second)
-	sendMachineInfo := func(delay time.Duration) {
-		time.Sleep(delay)
-		systemInfo := GetSystemStats()
-		machineInfo := &types.DeepLinkMachineInfoBandwidth{
-			CpuCores:    systemInfo.CpuCores,
-			MemoryTotal: systemInfo.MemoryTotal,
-			Hdd:         systemInfo.Hdd,
-			Bandwidth:   systemInfo.Bandwidth,
-			Wallet:      config.Wallet,
-		}
-		reqBody, err := json.Marshal(machineInfo)
-		if err != nil {
-			log.Fatalf("marshal machine info request body failed: %v", err)
-		}
-		req2 := &types.WsRequest{
-			WsHeader: types.WsHeader{
-				Version:   0,
-				Timestamp: time.Now().UnixMilli(),
-				Id:        reqId,
-				Type:      uint32(types.WsMtDeepLinkMachineInfoBW),
-				PubKey:    []byte(""),
-				Sign:      []byte(""),
-			},
-			Body: reqBody,
-		}
-		reqBytes, err := json.Marshal(req2)
-		if err != nil {
-			log.Fatalf("marshal machine info request failed: %v", err)
-		}
-		select {
-		case <-done:
-			log.Print("connection already closed")
-		default:
-			writeQueue <- envelope{t: websocket.TextMessage, msg: reqBytes}
-			reqId++
-		}
-	}
-	c.SetPongHandler(func(string) error { c.SetReadDeadline(time.Now().Add(pongWait)); return nil })
-	// read websocket connection
-	go func() {
-		defer close(done)
-		for {
-			c.SetReadDeadline(time.Now().Add(pongWait))
-			_, message, err := c.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Printf("read error: %v", err)
-				} else {
-					log.Printf("connection closed: %v", err)
-				}
-				return
-			}
-			log.Printf("recv: %s", message)
-
-			response := &types.WsResponse{}
-			if err := json.Unmarshal(message, response); err != nil {
-				log.Printf("parse response failed: %v", err)
-				continue
-			}
-			switch response.Type {
-			case uint32(types.WsMtOnline):
-				if response.Code == 0 {
-					go sendMachineInfo(3 * time.Second)
-				} else {
-					log.Printf("online failed %v %v", response.Code, response.Message)
-					go sendOnline(10 * time.Second)
-				}
-			case uint32(types.WsMtDeepLinkMachineInfoBW):
-				if response.Code == 0 {
-					log.Printf("send machine info bandwidth success")
-				} else {
-					log.Printf("online failed %v %v", response.Code, response.Message)
-					go sendMachineInfo(10 * time.Second)
-				}
-			case uint32(types.WsMtNotify):
-				notifyMessage := &types.WsNotifyMessage{}
-				if err := json.Unmarshal(response.Body, notifyMessage); err != nil {
-					log.Printf("parse notify response failed: %v", err)
-				} else {
-					if notifyMessage.Unregister.Message != "" {
-						log.Printf("machine was unregistered by server")
-						return
-					}
-				}
-			}
-		}
-	}()
-
-	go sendOnline(3 * time.Second)
-	ticker := time.NewTicker(pingPeriod)
-	defer ticker.Stop()
-
 	for {
-		select {
-		case <-done:
+		err := runClient(config, interrupt)
+		if err == nil {
 			return
-		case t := <-ticker.C:
-			if err := c.WriteControl(websocket.PingMessage, []byte(t.String()), time.Now().Add(writeWait)); err != nil {
-				log.Printf("ping websocket failed: %v", err)
-				return
-			}
-		case message, ok := <-writeQueue:
-			c.SetWriteDeadline(time.Now().Add(writeWait))
-			if !ok {
-				// sen close message
-				c.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-			if message.t == websocket.CloseMessage {
-				c.WriteMessage(websocket.CloseMessage, message.msg)
-				return
-			}
-			c.WriteMessage(message.t, message.msg)
-		case <-interrupt:
-			log.Println("interrupt")
+		}
+		if errors.Is(err, errShutdown) {
+			return
+		}
 
-			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			if err != nil {
-				log.Println("write close:", err)
-				return
-			}
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-			}
+		log.Printf("client exited, will reconnect in %s: %v", reconnectDelay, err)
+
+		select {
+		case <-interrupt:
 			return
+		case <-time.After(reconnectDelay):
 		}
 	}
 }
