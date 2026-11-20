@@ -327,7 +327,9 @@ func (d *detector) ReportOffline(machineID string) (string, error) {
 
 // signAndSubmit signs with the cached nonce and submits; increments the local nonce on success. Caller holds d.mu.
 func (d *detector) signAndSubmit(call gtypes.Call) (string, error) {
-	ext := gtypes.NewExtrinsic(call)
+	if err := checkSignedExtensions(d.meta); err != nil {
+		return "", err
+	}
 	o := gtypes.SignatureOptions{
 		BlockHash:          d.genesis,
 		Era:                gtypes.ExtrinsicEra{IsImmortalEra: true},
@@ -337,15 +339,16 @@ func (d *detector) signAndSubmit(call gtypes.Call) (string, error) {
 		Tip:                gtypes.NewUCompactFromUInt(0),
 		TransactionVersion: d.rv.TransactionVersion,
 	}
-	if err := ext.Sign(d.kp, o); err != nil {
-		return "", fmt.Errorf("sign: %w", err)
+	// gsrpc's ext.Sign omits ChargeAssetTxPayment's asset_id, which the chain
+	// can't decode; encode the extrinsic for DBC's signed extensions instead.
+	extHex, err := encodeSignedExtrinsic(d.kp, call, o)
+	if err != nil {
+		return "", err
 	}
 	api := d.api // snapshot: a leaked-on-timeout goroutine must not read the shared d.api field
 	var h gtypes.Hash
 	if err := withTimeout(opTimeout, func() error {
-		var e error
-		h, e = api.RPC.Author.SubmitExtrinsic(ext)
-		return e
+		return api.Client.Call(&h, "author_submitExtrinsic", extHex)
 	}); err != nil {
 		if errors.Is(err, errTimeout) {
 			// Ambiguous: the extrinsic may already have been accepted (nonce consumed) or never
